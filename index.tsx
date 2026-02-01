@@ -1,6 +1,5 @@
-import React, { useState, useRef, useEffect, useCallback } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import { createRoot } from "react-dom/client";
-import { GoogleGenAI, Chat, Type, FunctionDeclaration, Content } from "@google/genai";
 import { Search, Image as ImageIcon, Upload, ExternalLink, Loader2, Sparkles, ShoppingBag, X, AlertCircle, Terminal, ChevronDown, ChevronUp, Send, Bot, User, MoveHorizontal, Hammer, LogOut, History, Plus, Menu, UserCircle, Layout, MessageSquare, Trash2 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import { supabase } from "./supabaseClient";
@@ -63,7 +62,6 @@ const AuthModal = ({ isOpen, onClose, onLogin, canClose = true }: { isOpen: bool
       } else {
         const { error } = await supabase.auth.signUp({ email, password });
         if (error) throw error;
-        // In dev/test mode, auto-login or just notify success
         setError("注册成功！");
         onLogin();
         onClose();
@@ -79,56 +77,56 @@ const AuthModal = ({ isOpen, onClose, onLogin, canClose = true }: { isOpen: bool
     <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/90 backdrop-blur-md p-4">
       <div className="bg-[#18181b] border border-zinc-800 rounded-2xl w-full max-w-md p-6 shadow-2xl relative">
         <div className="flex justify-between items-center mb-6">
-                <h2 className="text-xl font-bold text-white">{isLogin ? "登录" : "注册"}</h2>
-                {canClose && (
-                    <button onClick={onClose} className="text-zinc-400 hover:text-white">
-                    <X size={20} />
-                    </button>
-                )}
-                </div>
-                
-                {!canClose && (
-                <div className="mb-6 text-sm text-zinc-400 bg-zinc-900/50 p-3 rounded-lg border border-zinc-800/50">
-                    👋 欢迎！请先登录或注册以继续使用 Booth Hunter。
-                </div>
-                )}
+          <h2 className="text-xl font-bold text-white">{isLogin ? "登录" : "注册"}</h2>
+          {canClose && (
+            <button onClick={onClose} className="text-zinc-400 hover:text-white">
+              <X size={20} />
+            </button>
+          )}
+        </div>
+        
+        {!canClose && (
+          <div className="mb-6 text-sm text-zinc-400 bg-zinc-900/50 p-3 rounded-lg border border-zinc-800/50">
+            👋 欢迎！请先登录或注册以继续使用 Booth Hunter。
+          </div>
+        )}
 
-                {error && (
-                <div className="mb-4 p-3 bg-red-900/20 border border-red-500/30 rounded-lg text-red-200 text-sm flex items-start gap-2">
-                    <AlertCircle size={16} className="mt-0.5 flex-shrink-0" />
-                    <span>{error}</span>
-                </div>
-                )}
+        {error && (
+          <div className="mb-4 p-3 bg-red-900/20 border border-red-500/30 rounded-lg text-red-200 text-sm flex items-start gap-2">
+            <AlertCircle size={16} className="mt-0.5 flex-shrink-0" />
+            <span>{error}</span>
+          </div>
+        )}
 
-                <form onSubmit={handleSubmit} className="space-y-4">
-                <div>
-                    <label className="block text-xs font-medium text-zinc-400 mb-1">邮箱</label>
-                    <input
-                    type="email"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    className="w-full bg-zinc-900 border border-zinc-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-[#fc4d50]"
-                    required
-                    />
-                </div>
-                <div>
-                    <label className="block text-xs font-medium text-zinc-400 mb-1">密码</label>
-                    <input
-                    type="password"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    className="w-full bg-zinc-900 border border-zinc-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-[#fc4d50]"
-                    required
-                    />
-                </div>
-                <button
-                    type="submit"
-                    disabled={loading}
-                    className="w-full bg-[#fc4d50] hover:bg-[#d93f42] text-white font-bold py-2.5 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                    {loading ? <Loader2 size={18} className="animate-spin mx-auto" /> : (isLogin ? "登录" : "注册")}
-                </button>
-                </form>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div>
+            <label className="block text-xs font-medium text-zinc-400 mb-1">邮箱</label>
+            <input
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              className="w-full bg-zinc-900 border border-zinc-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-[#fc4d50]"
+              required
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-zinc-400 mb-1">密码</label>
+            <input
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              className="w-full bg-zinc-900 border border-zinc-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-[#fc4d50]"
+              required
+            />
+          </div>
+          <button
+            type="submit"
+            disabled={loading}
+            className="w-full bg-[#fc4d50] hover:bg-[#d93f42] text-white font-bold py-2.5 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {loading ? <Loader2 size={18} className="animate-spin mx-auto" /> : (isLogin ? "登录" : "注册")}
+          </button>
+        </form>
 
         <div className="mt-4 text-center text-sm text-zinc-400">
           {isLogin ? "没有账号？" : "已有账号？"}
@@ -488,30 +486,6 @@ const ChatMessageBubble = React.memo(({ message }: { message: Message }) => {
   );
 });
 
-// --- Main App ---
-
-const SEARCH_TOOL: FunctionDeclaration = {
-  name: "search_booth",
-  description: "Search for VRChat assets on Booth.pm (a marketplace). Use this tool to find real items, prices, and images. Always translate keywords to Japanese before searching.",
-  parameters: {
-    type: Type.OBJECT,
-    properties: {
-      keyword: {
-        type: Type.STRING,
-        description: "The search keyword in Japanese (e.g., '髪' instead of 'Hair', '衣装' instead of 'Outfit').",
-      },
-    },
-    required: ["keyword"],
-  },
-};
-
-// Proxy definitions for rotation
-const PROXIES = [
-  { name: "CodeTabs", url: (u: string) => `https://api.codetabs.com/v1/proxy/?quest=${encodeURIComponent(u)}`, type: 'html' },
-  { name: "AllOrigins", url: (u: string) => `https://api.allorigins.win/get?url=${encodeURIComponent(u)}`, type: 'json' },
-  { name: "CorsProxy", url: (u: string) => `https://corsproxy.io/?${encodeURIComponent(u)}`, type: 'html' }
-];
-
 const App = () => {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
@@ -527,7 +501,6 @@ const App = () => {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isAuthOpen, setIsAuthOpen] = useState(false);
   
-  const chatSessionRef = useRef<Chat | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -618,22 +591,12 @@ const App = () => {
     if (session) {
       setCurrentSessionId(id);
       setMessages(session.messages);
-      
-      // Convert messages to history for AI context
-      const history: Content[] = session.messages
-        .filter(m => m.id !== 'init' && !m.isStreaming && !m.toolCall)
-        .map(m => ({
-          role: m.role,
-          parts: [{ text: m.text }]
-        }));
-
-      initChat(history, true); 
     }
   };
 
   const handleNewChat = () => {
     setCurrentSessionId(null);
-    initChat(undefined, false);
+    initChat(false);
   };
 
   const handleDeleteSession = async (id: string) => {
@@ -660,33 +623,7 @@ const App = () => {
 
   // --- Chat Logic ---
 
-  const initChat = (history?: Content[], keepMessages: boolean = false) => {
-     const apiKey = process.env.API_KEY;
-     if (apiKey) {
-      const ai = new GoogleGenAI({ apiKey });
-      const systemPrompt = `
-        你是一个 VRChat Booth 资产导购助手。
-        **工具使用规则**:
-        1. 当用户寻找素材时，**必须**调用 \`search_booth\` 工具。不要凭空编造商品。
-        2. 调用工具前，先将用户的中文关键词翻译成日文。
-        3. 工具会返回真实的搜索结果（JSON格式）。
-        **回复生成规则**:
-        1. 收到工具返回的结果后，请从中挑选 4-8 个最符合用户需求的商品。
-        2. 用 Markdown 列表向用户简要介绍这些商品（标题、价格、推荐理由）。
-        3. **关键**: 在回复的最后，必须包含一个 JSON 代码块，用于前端渲染卡片。
-        **JSON 输出格式**:
-        \`\`\`json
-        [
-          { "id": "商品ID", "title": "完整标题", "shopName": "店铺名", "price": "价格", "url": "...", "imageUrl": "...", "description": "...", "tags": ["Tag1"] }
-        ]
-        \`\`\`
-      `;
-      chatSessionRef.current = ai.chats.create({
-        model: "gemini-3-pro-preview",
-        config: { systemInstruction: systemPrompt, tools: [{ functionDeclarations: [SEARCH_TOOL] }] },
-        history: history
-      });
-      
+  const initChat = (keepMessages: boolean = false) => {
       if (!keepMessages) {
         setMessages([{
           id: 'init',
@@ -695,50 +632,12 @@ const App = () => {
           timestamp: Date.now()
         }]);
       }
-     }
-  };
-
-  // Scraper implementation
-  const executeSearchBooth = async (keyword: string, attemptIndex: number = 0) => {
-    const proxy = PROXIES[attemptIndex % PROXIES.length];
-    try {
-      const targetUrl = `https://booth.pm/ja/search/${encodeURIComponent(keyword)}`;
-      const proxyUrl = proxy.url(targetUrl);
-      const res = await fetch(proxyUrl);
-      if (!res.ok) throw new Error(`Proxy ${proxy.name} returned ${res.status}`);
-      let htmlContent = "";
-      if (proxy.type === 'json') {
-          const data = await res.json();
-          htmlContent = data.contents;
-          if (!htmlContent) throw new Error("No content in JSON response");
-      } else {
-          htmlContent = await res.text();
-      }
-      const parser = new DOMParser();
-      const doc = parser.parseFromString(htmlContent, "text/html");
-      const items = Array.from(doc.querySelectorAll("li.item-card")).map((el) => {
-          const title = el.querySelector(".item-card__title")?.textContent?.trim() || "No Title";
-          const shopName = el.querySelector(".item-card__shop-name")?.textContent?.trim() || "Unknown Shop";
-          const price = el.querySelector(".price")?.textContent?.trim() || "Free";
-          const linkEl = el.querySelector(".item-card__title-anchor") as HTMLAnchorElement;
-          const url = linkEl?.getAttribute("href") || "";
-          const fullUrl = url.startsWith("http") ? url : `https://booth.pm${url}`;
-          const id = el.getAttribute("data-product-id") || url.split("/").pop() || "";
-          const imgEl = el.querySelector(".item-card__thumbnail-image") as HTMLImageElement;
-          const imageUrl = imgEl?.getAttribute("data-original") || imgEl?.getAttribute("data-src") || imgEl?.getAttribute("src") || "";
-          return { id, title, shopName, price, url: fullUrl, imageUrl, description: "", tags: [] };
-      });
-      return items.slice(0, 10);
-    } catch (e: any) {
-      console.error(`Scrape error (${proxy.name}):`, e.message);
-      return [];
-    }
   };
 
   useEffect(() => {
     // Only init if no current session (first load)
     if (!currentSessionId && messages.length === 0) {
-      initChat(undefined, false);
+      initChat(false);
     }
   }, []);
 
@@ -773,7 +672,7 @@ const App = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if ((!input.trim() && !image) || loading || !chatSessionRef.current) return;
+    if ((!input.trim() && !image) || loading) return;
 
     const userText = input;
     const userImage = image;
@@ -790,27 +689,11 @@ const App = () => {
       timestamp: Date.now()
     };
     
-    // Optimistic update
     const updatedMessages = [...messages, userMsg];
     setMessages(updatedMessages);
 
-    // Save immediate user message if desired, but better wait for bot response to save pair
-    
     try {
-      const parts: any[] = [{ text: userText }];
-      if (userImage) {
-        const match = userImage.match(/^data:(.*?);base64,/);
-        const mimeType = match ? match[1] : "image/png";
-        parts.push({
-          inlineData: {
-            mimeType: mimeType,
-            data: userImage.split(',')[1]
-          }
-        });
-      }
-
       const modelMsgId = (Date.now() + 1).toString();
-      // Placeholder
       setMessages(prev => [...prev, {
         id: modelMsgId,
         role: 'model',
@@ -819,71 +702,25 @@ const App = () => {
         isStreaming: true
       }]);
 
+      const response = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ messages: updatedMessages })
+      });
+
+      if (!response.ok || !response.body) throw new Error(response.statusText);
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
       let accumulatedText = "";
-      
-      const stream = await chatSessionRef.current.sendMessageStream({ message: parts });
-      let functionCalls: any[] = [];
 
-      for await (const chunk of stream) {
-        const chunkText = chunk.candidates?.[0]?.content?.parts?.map((p: any) => p.text || "").join("") || "";
-        accumulatedText += chunkText;
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        
+        const chunk = decoder.decode(value, { stream: true });
+        accumulatedText += chunk;
         setMessages(prev => prev.map(m => m.id === modelMsgId ? { ...m, text: accumulatedText } : m));
-        
-        if (chunk.functionCalls && chunk.functionCalls.length > 0) {
-            functionCalls.push(...chunk.functionCalls);
-        }
-      }
-
-      if (functionCalls.length > 0) {
-        setProcessingTool(true);
-        const toolResponses: any[] = [];
-        let toolName = "";
-
-        for (const call of functionCalls) {
-          toolName = call.name;
-          
-          if (call.name === "search_booth") {
-            const keyword = (call.args as any).keyword;
-            let items: AssetResult[] = [];
-            let attempts = 0;
-            const maxAttempts = 3;
-
-            while (attempts < maxAttempts) {
-                const currentAttempt = attempts; 
-                attempts++;
-                const isRetry = attempts > 1;
-
-                setMessages(prev => prev.map(m => m.id === modelMsgId ? { 
-                    ...m, 
-                    toolCall: isRetry ? `搜索 "${keyword}" (重试 ${attempts-1}/${maxAttempts-1})...` : `搜索 "${keyword}"`, 
-                    isStreaming: false 
-                } : m));
-
-                if (isRetry) console.warn(`Attempt ${attempts} for ${keyword} failed`);
-                items = await executeSearchBooth(keyword, currentAttempt);
-                if (items.length > 0) break;
-                if (attempts < maxAttempts) await new Promise(resolve => setTimeout(resolve, 2000));
-            }
-            
-            toolResponses.push({
-              functionResponse: {
-                name: call.name,
-                id: call.id,
-                response: { result: items } 
-              }
-            });
-          }
-        }
-
-        setMessages(prev => prev.map(m => m.id === modelMsgId ? { ...m, isStreaming: true, text: m.text + "\n\n" } : m));
-        
-        const toolResult = await chatSessionRef.current.sendMessageStream({ message: toolResponses });
-        for await (const chunk of toolResult) {
-          const chunkText = chunk.candidates?.[0]?.content?.parts?.map((p: any) => p.text || "").join("") || "";
-          accumulatedText += chunkText;
-          setMessages(prev => prev.map(m => m.id === modelMsgId ? { ...m, text: accumulatedText } : m));
-        }
-        setProcessingTool(false);
       }
 
       const items = extractItems(accumulatedText);
@@ -910,11 +747,10 @@ const App = () => {
 
     } catch (err: any) {
       console.error(err);
-      setProcessingTool(false);
       setMessages(prev => [...prev, {
         id: Date.now().toString(),
         role: 'model',
-        text: "出错了！你可以告诉我“重试”来再次尝试。",
+        text: "网络错误或服务器繁忙，请稍后再试。",
         timestamp: Date.now()
       }]);
     } finally {
