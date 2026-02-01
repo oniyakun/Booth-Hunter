@@ -40,7 +40,7 @@ interface ChatSession {
 // --- Components ---
 
 // Auth Modal Component
-const AuthModal = ({ isOpen, onClose, onLogin, user, canClose = true }: { isOpen: boolean; onClose: () => void; onLogin: () => void; user: any; canClose?: boolean }) => {
+const AuthModal = ({ isOpen, onClose, onLogin, canClose = true }: { isOpen: boolean; onClose: () => void; onLogin: () => void; canClose?: boolean }) => {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [isLogin, setIsLogin] = useState(true);
@@ -49,9 +49,6 @@ const AuthModal = ({ isOpen, onClose, onLogin, user, canClose = true }: { isOpen
 
   if (!isOpen) return null;
 
-  // Check if user is logged in but not verified
-  const isUnverified = user && !user.email_confirmed_at;
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
@@ -59,29 +56,17 @@ const AuthModal = ({ isOpen, onClose, onLogin, user, canClose = true }: { isOpen
 
     try {
       if (isLogin) {
-        const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+        const { error } = await supabase.auth.signInWithPassword({ email, password });
         if (error) throw error;
-        
-        // Check verification status after login
-        if (data.user && !data.user.email_confirmed_at) {
-           setError("请先前往邮箱验证您的账户。");
-           // We don't call onLogin() here to keep the modal open
-        } else {
-           onLogin();
-           onClose();
-        }
+        onLogin();
+        onClose();
       } else {
-        const { data, error } = await supabase.auth.signUp({ email, password });
+        const { error } = await supabase.auth.signUp({ email, password });
         if (error) throw error;
-        
-        // Even if signup is successful, we check if verification is needed
-        if (data.user && !data.user.email_confirmed_at) {
-            setError("注册成功！请前往邮箱查收验证邮件，验证后即可登录。");
-            setIsLogin(true); // Switch to login mode
-        } else {
-            onLogin();
-            onClose();
-        }
+        // In dev/test mode, auto-login or just notify success
+        setError("注册成功！");
+        onLogin();
+        onClose();
       }
     } catch (err: any) {
       setError(err.message);
@@ -90,71 +75,10 @@ const AuthModal = ({ isOpen, onClose, onLogin, user, canClose = true }: { isOpen
     }
   };
 
-  const handleLogout = async () => {
-      await supabase.auth.signOut();
-      setError(null);
-  };
-
-  const handleResendEmail = async () => {
-      if (!user?.email) return;
-      setLoading(true);
-      const { error } = await supabase.auth.resend({
-          type: 'signup',
-          email: user.email,
-      });
-      setLoading(false);
-      if (error) setError(error.message);
-      else setError("验证邮件已重新发送！");
-  }
-
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/90 backdrop-blur-md p-4">
       <div className="bg-[#18181b] border border-zinc-800 rounded-2xl w-full max-w-md p-6 shadow-2xl relative">
-        
-        {isUnverified ? (
-            // Unverified View
-            <div className="text-center">
-                <div className="w-16 h-16 bg-[#fc4d50]/10 rounded-full flex items-center justify-center mx-auto mb-4 text-[#fc4d50]">
-                    <AlertCircle size={32} />
-                </div>
-                <h2 className="text-xl font-bold text-white mb-2">请验证您的邮箱</h2>
-                <p className="text-zinc-400 text-sm mb-6 px-4">
-                    我们要确保您是真人。<br/>
-                    验证邮件已发送至 <span className="text-white font-mono">{user.email}</span>
-                </p>
-                
-                {error && (
-                    <div className="mb-4 p-2 text-xs bg-red-900/20 text-red-200 rounded">
-                        {error}
-                    </div>
-                )}
-
-                <div className="space-y-3">
-                    <button 
-                        onClick={() => window.location.reload()}
-                        className="w-full bg-[#fc4d50] hover:bg-[#d93f42] text-white font-bold py-2.5 rounded-lg transition-colors"
-                    >
-                        我已完成验证
-                    </button>
-                    <button 
-                        onClick={handleResendEmail}
-                        disabled={loading}
-                        className="w-full bg-zinc-800 hover:bg-zinc-700 text-zinc-300 font-medium py-2.5 rounded-lg transition-colors text-sm"
-                    >
-                        {loading ? "发送中..." : "重新发送验证邮件"}
-                    </button>
-                    <button 
-                        onClick={handleLogout}
-                        className="text-zinc-500 hover:text-zinc-400 text-xs mt-4 underline"
-                    >
-                        退出登录
-                    </button>
-                </div>
-            </div>
-        ) : (
-            // Login/Register View
-            <>
-                <div className="flex justify-between items-center mb-6">
+        <div className="flex justify-between items-center mb-6">
                 <h2 className="text-xl font-bold text-white">{isLogin ? "登录" : "注册"}</h2>
                 {canClose && (
                     <button onClick={onClose} className="text-zinc-400 hover:text-white">
@@ -206,17 +130,15 @@ const AuthModal = ({ isOpen, onClose, onLogin, user, canClose = true }: { isOpen
                 </button>
                 </form>
 
-                <div className="mt-4 text-center text-sm text-zinc-400">
-                {isLogin ? "没有账号？" : "已有账号？"}
-                <button
-                    onClick={() => setIsLogin(!isLogin)}
-                    className="ml-1 text-[#fc4d50] hover:underline font-medium"
-                >
-                    {isLogin ? "立即注册" : "去登录"}
-                </button>
-                </div>
-            </>
-        )}
+        <div className="mt-4 text-center text-sm text-zinc-400">
+          {isLogin ? "没有账号？" : "已有账号？"}
+          <button
+            onClick={() => setIsLogin(!isLogin)}
+            className="ml-1 text-[#fc4d50] hover:underline font-medium"
+          >
+            {isLogin ? "立即注册" : "去登录"}
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -612,34 +534,28 @@ const App = () => {
   // --- Auth & DB Effects ---
 
   useEffect(() => {
-    const checkUser = (session: any) => {
-        const u = session?.user;
-        setUser(u ?? null);
-        setAuthLoading(false);
-        
-        if (u) {
-            if (u.email_confirmed_at) {
-                // Logged in AND verified
-                setIsAuthOpen(false);
-                fetchSessions();
-            } else {
-                // Logged in but NOT verified
-                setIsAuthOpen(true);
-            }
-        } else {
-            // Not logged in
-            setIsAuthOpen(true);
-            setSessions([]);
-            setCurrentSessionId(null);
-        }
-    };
-
     supabase.auth.getSession().then(({ data: { session } }) => {
-      checkUser(session);
+      setUser(session?.user ?? null);
+      setAuthLoading(false);
+      if (session?.user) {
+        setIsAuthOpen(false);
+        fetchSessions();
+      } else {
+        setIsAuthOpen(true);
+      }
     });
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      checkUser(session);
+      setUser(session?.user ?? null);
+      setAuthLoading(false);
+      if (session?.user) {
+        setIsAuthOpen(false);
+        fetchSessions();
+      } else {
+        setSessions([]);
+        setCurrentSessionId(null);
+        setIsAuthOpen(true);
+      }
     });
 
     return () => subscription.unsubscribe();
@@ -1136,8 +1052,7 @@ const App = () => {
           isOpen={isAuthOpen} 
           onClose={() => setIsAuthOpen(false)}
           onLogin={() => setIsAuthOpen(false)}
-          user={user}
-          canClose={!!user && !!user.email_confirmed_at}
+          canClose={!!user}
         />
       )}
 
