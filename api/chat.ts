@@ -22,7 +22,7 @@ const SEARCH_TOOL = {
 
 // Proxy definitions for rotation (Server-side compatible)
 const PROXIES = [
-  { name: "CodeTabs", url: (u: string) => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(u)}`, type: 'html' },
+  { name: "CodeTabs", url: (u: string) => `https://api.codetabs.com/v1/proxy/?quest=${encodeURIComponent(u)}`, type: 'html' },
   { name: "CorsProxy", url: (u: string) => `https://corsproxy.io/?${encodeURIComponent(u)}`, type: 'html' },
   // Direct fallback
   { name: "Direct", url: (u: string) => u, type: 'html' }
