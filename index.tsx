@@ -39,7 +39,7 @@ interface ChatSession {
 // --- Components ---
 
 // Auth Modal Component
-const AuthModal = ({ isOpen, onClose, onLogin, canClose = true }: { isOpen: boolean; onClose: () => void; onLogin: () => void; canClose?: boolean }) => {
+const AuthModal = ({ isOpen, onClose, onLogin, user, canClose = true }: { isOpen: boolean; onClose: () => void; onLogin: () => void; user: any; canClose?: boolean }) => {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [isLogin, setIsLogin] = useState(true);
@@ -48,6 +48,9 @@ const AuthModal = ({ isOpen, onClose, onLogin, canClose = true }: { isOpen: bool
 
   if (!isOpen) return null;
 
+  // Check if user is logged in but not verified
+  const isUnverified = user && !user.email_confirmed_at;
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
@@ -55,18 +58,28 @@ const AuthModal = ({ isOpen, onClose, onLogin, canClose = true }: { isOpen: bool
 
     try {
       if (isLogin) {
-        const { error } = await supabase.auth.signInWithPassword({ email, password });
+        const { data, error } = await supabase.auth.signInWithPassword({ email, password });
         if (error) throw error;
-        onLogin();
-        onClose();
+        
+        // Check verification status after login
+        if (data.user && !data.user.email_confirmed_at) {
+           setError("请先前往邮箱验证您的账户。");
+           // We don't call onLogin() here to keep the modal open
+        } else {
+           onLogin();
+           onClose();
+        }
       } else {
-        const { error } = await supabase.auth.signUp({ email, password });
+        const { data, error } = await supabase.auth.signUp({ email, password });
         if (error) throw error;
-        setError("注册成功！请检查邮箱完成验证。");
-        // For development/testing often no email verification is needed if configured so
-        if (!error) {
-             onLogin();
-             onClose();
+        
+        // Even if signup is successful, we check if verification is needed
+        if (data.user && !data.user.email_confirmed_at) {
+            setError("注册成功！请前往邮箱查收验证邮件，验证后即可登录。");
+            setIsLogin(true); // Switch to login mode
+        } else {
+            onLogin();
+            onClose();
         }
       }
     } catch (err: any) {
@@ -76,70 +89,133 @@ const AuthModal = ({ isOpen, onClose, onLogin, canClose = true }: { isOpen: bool
     }
   };
 
+  const handleLogout = async () => {
+      await supabase.auth.signOut();
+      setError(null);
+  };
+
+  const handleResendEmail = async () => {
+      if (!user?.email) return;
+      setLoading(true);
+      const { error } = await supabase.auth.resend({
+          type: 'signup',
+          email: user.email,
+      });
+      setLoading(false);
+      if (error) setError(error.message);
+      else setError("验证邮件已重新发送！");
+  }
+
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/90 backdrop-blur-md p-4">
       <div className="bg-[#18181b] border border-zinc-800 rounded-2xl w-full max-w-md p-6 shadow-2xl relative">
-        <div className="flex justify-between items-center mb-6">
-          <h2 className="text-xl font-bold text-white">{isLogin ? "登录" : "注册"}</h2>
-          {canClose && (
-            <button onClick={onClose} className="text-zinc-400 hover:text-white">
-              <X size={20} />
-            </button>
-          )}
-        </div>
         
-        {!canClose && (
-          <div className="mb-6 text-sm text-zinc-400 bg-zinc-900/50 p-3 rounded-lg border border-zinc-800/50">
-            👋 欢迎！请先登录或注册以继续使用 Booth Hunter。
-          </div>
+        {isUnverified ? (
+            // Unverified View
+            <div className="text-center">
+                <div className="w-16 h-16 bg-[#fc4d50]/10 rounded-full flex items-center justify-center mx-auto mb-4 text-[#fc4d50]">
+                    <AlertCircle size={32} />
+                </div>
+                <h2 className="text-xl font-bold text-white mb-2">请验证您的邮箱</h2>
+                <p className="text-zinc-400 text-sm mb-6 px-4">
+                    我们要确保您是真人。<br/>
+                    验证邮件已发送至 <span className="text-white font-mono">{user.email}</span>
+                </p>
+                
+                {error && (
+                    <div className="mb-4 p-2 text-xs bg-red-900/20 text-red-200 rounded">
+                        {error}
+                    </div>
+                )}
+
+                <div className="space-y-3">
+                    <button 
+                        onClick={() => window.location.reload()}
+                        className="w-full bg-[#fc4d50] hover:bg-[#d93f42] text-white font-bold py-2.5 rounded-lg transition-colors"
+                    >
+                        我已完成验证
+                    </button>
+                    <button 
+                        onClick={handleResendEmail}
+                        disabled={loading}
+                        className="w-full bg-zinc-800 hover:bg-zinc-700 text-zinc-300 font-medium py-2.5 rounded-lg transition-colors text-sm"
+                    >
+                        {loading ? "发送中..." : "重新发送验证邮件"}
+                    </button>
+                    <button 
+                        onClick={handleLogout}
+                        className="text-zinc-500 hover:text-zinc-400 text-xs mt-4 underline"
+                    >
+                        退出登录
+                    </button>
+                </div>
+            </div>
+        ) : (
+            // Login/Register View
+            <>
+                <div className="flex justify-between items-center mb-6">
+                <h2 className="text-xl font-bold text-white">{isLogin ? "登录" : "注册"}</h2>
+                {canClose && (
+                    <button onClick={onClose} className="text-zinc-400 hover:text-white">
+                    <X size={20} />
+                    </button>
+                )}
+                </div>
+                
+                {!canClose && (
+                <div className="mb-6 text-sm text-zinc-400 bg-zinc-900/50 p-3 rounded-lg border border-zinc-800/50">
+                    👋 欢迎！请先登录或注册以继续使用 Booth Hunter。
+                </div>
+                )}
+
+                {error && (
+                <div className="mb-4 p-3 bg-red-900/20 border border-red-500/30 rounded-lg text-red-200 text-sm flex items-start gap-2">
+                    <AlertCircle size={16} className="mt-0.5 flex-shrink-0" />
+                    <span>{error}</span>
+                </div>
+                )}
+
+                <form onSubmit={handleSubmit} className="space-y-4">
+                <div>
+                    <label className="block text-xs font-medium text-zinc-400 mb-1">邮箱</label>
+                    <input
+                    type="email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    className="w-full bg-zinc-900 border border-zinc-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-[#fc4d50]"
+                    required
+                    />
+                </div>
+                <div>
+                    <label className="block text-xs font-medium text-zinc-400 mb-1">密码</label>
+                    <input
+                    type="password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    className="w-full bg-zinc-900 border border-zinc-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-[#fc4d50]"
+                    required
+                    />
+                </div>
+                <button
+                    type="submit"
+                    disabled={loading}
+                    className="w-full bg-[#fc4d50] hover:bg-[#d93f42] text-white font-bold py-2.5 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                    {loading ? <Loader2 size={18} className="animate-spin mx-auto" /> : (isLogin ? "登录" : "注册")}
+                </button>
+                </form>
+
+                <div className="mt-4 text-center text-sm text-zinc-400">
+                {isLogin ? "没有账号？" : "已有账号？"}
+                <button
+                    onClick={() => setIsLogin(!isLogin)}
+                    className="ml-1 text-[#fc4d50] hover:underline font-medium"
+                >
+                    {isLogin ? "立即注册" : "去登录"}
+                </button>
+                </div>
+            </>
         )}
-
-        {error && (
-          <div className="mb-4 p-3 bg-red-900/20 border border-red-500/30 rounded-lg text-red-200 text-sm flex items-start gap-2">
-            <AlertCircle size={16} className="mt-0.5 flex-shrink-0" />
-            <span>{error}</span>
-          </div>
-        )}
-
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div>
-            <label className="block text-xs font-medium text-zinc-400 mb-1">邮箱</label>
-            <input
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              className="w-full bg-zinc-900 border border-zinc-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-[#fc4d50]"
-              required
-            />
-          </div>
-          <div>
-            <label className="block text-xs font-medium text-zinc-400 mb-1">密码</label>
-            <input
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              className="w-full bg-zinc-900 border border-zinc-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-[#fc4d50]"
-              required
-            />
-          </div>
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full bg-[#fc4d50] hover:bg-[#d93f42] text-white font-bold py-2.5 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {loading ? <Loader2 size={18} className="animate-spin mx-auto" /> : (isLogin ? "登录" : "注册")}
-          </button>
-        </form>
-
-        <div className="mt-4 text-center text-sm text-zinc-400">
-          {isLogin ? "没有账号？" : "已有账号？"}
-          <button
-            onClick={() => setIsLogin(!isLogin)}
-            className="ml-1 text-[#fc4d50] hover:underline font-medium"
-          >
-            {isLogin ? "立即注册" : "去登录"}
-          </button>
-        </div>
       </div>
     </div>
   );
@@ -508,7 +584,7 @@ const SEARCH_TOOL: FunctionDeclaration = {
 
 // Proxy definitions for rotation
 const PROXIES = [
-  { name: "CodeTabs", url: (u: string) => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(u)}`, type: 'html' },
+  { name: "CodeTabs", url: (u: string) => `https://api.codetabs.com/v1/proxy/?quest=${encodeURIComponent(u)}`, type: 'html' },
   { name: "AllOrigins", url: (u: string) => `https://api.allorigins.win/get?url=${encodeURIComponent(u)}`, type: 'json' },
   { name: "CorsProxy", url: (u: string) => `https://corsproxy.io/?${encodeURIComponent(u)}`, type: 'html' }
 ];
@@ -535,28 +611,34 @@ const App = () => {
   // --- Auth & DB Effects ---
 
   useEffect(() => {
+    const checkUser = (session: any) => {
+        const u = session?.user;
+        setUser(u ?? null);
+        setAuthLoading(false);
+        
+        if (u) {
+            if (u.email_confirmed_at) {
+                // Logged in AND verified
+                setIsAuthOpen(false);
+                fetchSessions();
+            } else {
+                // Logged in but NOT verified
+                setIsAuthOpen(true);
+            }
+        } else {
+            // Not logged in
+            setIsAuthOpen(true);
+            setSessions([]);
+            setCurrentSessionId(null);
+        }
+    };
+
     supabase.auth.getSession().then(({ data: { session } }) => {
-      setUser(session?.user ?? null);
-      setAuthLoading(false);
-      if (session?.user) {
-        setIsAuthOpen(false);
-        fetchSessions();
-      } else {
-        setIsAuthOpen(true);
-      }
+      checkUser(session);
     });
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      setUser(session?.user ?? null);
-      setAuthLoading(false);
-      if (session?.user) {
-        setIsAuthOpen(false);
-        fetchSessions();
-      } else {
-        setSessions([]);
-        setCurrentSessionId(null);
-        setIsAuthOpen(true);
-      }
+      checkUser(session);
     });
 
     return () => subscription.unsubscribe();
@@ -1053,7 +1135,8 @@ const App = () => {
           isOpen={isAuthOpen} 
           onClose={() => setIsAuthOpen(false)}
           onLogin={() => setIsAuthOpen(false)}
-          canClose={!!user}
+          user={user}
+          canClose={!!user && !!user.email_confirmed_at}
         />
       )}
 
