@@ -1,8 +1,9 @@
 import React, { useState, useRef, useEffect, useCallback } from "react";
 import { createRoot } from "react-dom/client";
-import { GoogleGenAI, Chat, Type, FunctionDeclaration } from "@google/genai";
-import { Search, Image as ImageIcon, Upload, ExternalLink, Loader2, Sparkles, ShoppingBag, X, AlertCircle, Terminal, ChevronDown, ChevronUp, Send, Bot, User, MoveHorizontal, Hammer } from "lucide-react";
+import { GoogleGenAI, Chat, Type, FunctionDeclaration, Content } from "@google/genai";
+import { Search, Image as ImageIcon, Upload, ExternalLink, Loader2, Sparkles, ShoppingBag, X, AlertCircle, Terminal, ChevronDown, ChevronUp, Send, Bot, User, MoveHorizontal, Hammer, LogOut, History, Plus, Menu, UserCircle, Layout, MessageSquare, Trash2 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
+import { supabase } from "./supabaseClient";
 
 // --- Types ---
 
@@ -26,6 +27,13 @@ interface Message {
   timestamp: number;
   toolCall?: string; // Track if this message involved a tool call
   isStreaming?: boolean;
+}
+
+interface ChatSession {
+  id: string;
+  title: string;
+  messages: Message[];
+  created_at: string;
 }
 
 interface DebugLog {
@@ -84,6 +92,234 @@ const DebugConsole = ({ logs, isOpen, setIsOpen }: { logs: DebugLog[], isOpen: b
         </div>
       )}
     </div>
+  );
+};
+
+// Auth Modal Component
+const AuthModal = ({ isOpen, onClose, onLogin }: { isOpen: boolean; onClose: () => void; onLogin: () => void }) => {
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [isLogin, setIsLogin] = useState(true);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  if (!isOpen) return null;
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoading(true);
+    setError(null);
+
+    try {
+      if (isLogin) {
+        const { error } = await supabase.auth.signInWithPassword({ email, password });
+        if (error) throw error;
+        onLogin();
+        onClose();
+      } else {
+        const { error } = await supabase.auth.signUp({ email, password });
+        if (error) throw error;
+        setError("注册成功！请检查邮箱完成验证。");
+        // For development/testing often no email verification is needed if configured so
+        if (!error) {
+             onLogin();
+             onClose();
+        }
+      }
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+      <div className="bg-[#18181b] border border-zinc-800 rounded-2xl w-full max-w-md p-6 shadow-2xl">
+        <div className="flex justify-between items-center mb-6">
+          <h2 className="text-xl font-bold text-white">{isLogin ? "登录" : "注册"}</h2>
+          <button onClick={onClose} className="text-zinc-400 hover:text-white">
+            <X size={20} />
+          </button>
+        </div>
+
+        {error && (
+          <div className="mb-4 p-3 bg-red-900/20 border border-red-500/30 rounded-lg text-red-200 text-sm flex items-start gap-2">
+            <AlertCircle size={16} className="mt-0.5 flex-shrink-0" />
+            <span>{error}</span>
+          </div>
+        )}
+
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div>
+            <label className="block text-xs font-medium text-zinc-400 mb-1">邮箱</label>
+            <input
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              className="w-full bg-zinc-900 border border-zinc-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-[#fc4d50]"
+              required
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-zinc-400 mb-1">密码</label>
+            <input
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              className="w-full bg-zinc-900 border border-zinc-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-[#fc4d50]"
+              required
+            />
+          </div>
+          <button
+            type="submit"
+            disabled={loading}
+            className="w-full bg-[#fc4d50] hover:bg-[#d93f42] text-white font-bold py-2.5 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {loading ? <Loader2 size={18} className="animate-spin mx-auto" /> : (isLogin ? "登录" : "注册")}
+          </button>
+        </form>
+
+        <div className="mt-4 text-center text-sm text-zinc-400">
+          {isLogin ? "没有账号？" : "已有账号？"}
+          <button
+            onClick={() => setIsLogin(!isLogin)}
+            className="ml-1 text-[#fc4d50] hover:underline font-medium"
+          >
+            {isLogin ? "立即注册" : "去登录"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// Sidebar Component
+const Sidebar = ({ 
+  isOpen, 
+  onClose, 
+  user, 
+  sessions, 
+  currentSessionId, 
+  onSelectSession, 
+  onNewChat,
+  onOpenAuth,
+  onDeleteSession
+}: { 
+  isOpen: boolean; 
+  onClose: () => void; 
+  user: any; 
+  sessions: ChatSession[]; 
+  currentSessionId: string | null; 
+  onSelectSession: (id: string) => void; 
+  onNewChat: () => void;
+  onOpenAuth: () => void;
+  onDeleteSession: (id: string) => void;
+}) => {
+  return (
+    <>
+      {/* Overlay for mobile */}
+      {isOpen && (
+        <div 
+          className="fixed inset-0 bg-black/60 backdrop-blur-sm z-30 md:hidden"
+          onClick={onClose}
+        />
+      )}
+      
+      <div className={`fixed inset-y-0 left-0 z-40 w-73 bg-[#0c0c0e] border-r border-zinc-800 transform transition-transform duration-300 ease-in-out ${isOpen ? 'translate-x-0' : '-translate-x-full'} md:translate-x-0 md:static`}>
+        <div className="flex flex-col h-full">
+          <div className="p-4 border-b border-zinc-800 flex items-center justify-between">
+            <div className="flex items-center gap-2 text-white font-bold">
+              <div className="bg-[#fc4d50] w-7 h-7 rounded-lg flex items-center justify-center text-white text-sm">B</div>
+              <span>Booth Hunter</span>
+            </div>
+            <button onClick={onClose} className="md:hidden text-zinc-400">
+              <X size={20} />
+            </button>
+          </div>
+
+          <div className="p-4">
+            <button
+              onClick={() => { onNewChat(); if(window.innerWidth < 768) onClose(); }}
+              className="w-full bg-zinc-800 hover:bg-zinc-700 text-white flex items-center gap-2 px-4 py-3 rounded-xl transition-colors font-medium border border-zinc-700"
+            >
+              <Plus size={18} />
+              <span>新对话</span>
+            </button>
+          </div>
+
+          <div className="flex-grow overflow-y-auto px-2 space-y-1 scrollbar-thin scrollbar-thumb-zinc-800">
+            <h3 className="px-3 text-xs font-bold text-zinc-500 uppercase tracking-wider mb-2 mt-2">历史记录</h3>
+            {!user ? (
+               <div className="px-3 text-sm text-zinc-500 py-4 text-center">
+                 登录后可保存和查看历史记录
+               </div>
+            ) : sessions.length === 0 ? (
+               <div className="px-3 text-sm text-zinc-500 py-4 text-center">
+                 暂无历史记录
+               </div>
+            ) : (
+              sessions.map((session) => (
+                <div key={session.id} className="group flex items-center gap-1 w-full">
+                  <button
+                    onClick={() => { onSelectSession(session.id); if(window.innerWidth < 768) onClose(); }}
+                    className={`flex-grow text-left px-3 py-3 rounded-lg text-sm flex items-center gap-3 transition-colors ${
+                      currentSessionId === session.id 
+                        ? "bg-[#fc4d50]/10 text-[#fc4d50] border border-[#fc4d50]/20" 
+                        : "text-zinc-400 hover:bg-zinc-800/50 hover:text-zinc-200"
+                    }`}
+                  >
+                    <MessageSquare size={16} className="flex-shrink-0" />
+                    <span className="truncate text-left">
+                      {session.title?.slice(0, 18) || "未命名对话"}
+                      {(session.title?.length || 0) > 18 ? "..." : ""}
+                    </span>
+                  </button>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); onDeleteSession(session.id); }}
+                    className="p-2 text-zinc-600 hover:text-red-400 hover:bg-zinc-800 rounded-lg transition-colors opacity-0 group-hover:opacity-100"
+                    title="删除对话"
+                  >
+                    <Trash2 size={14} />
+                  </button>
+                </div>
+              ))
+            )}
+          </div>
+
+          <div className="p-4 border-t border-zinc-800">
+            {user ? (
+              <div className="flex items-center justify-between">
+                 <div className="flex items-center gap-2 overflow-hidden">
+                    <div className="w-8 h-8 rounded-full bg-zinc-800 flex items-center justify-center text-zinc-400">
+                      <UserCircle size={20} />
+                    </div>
+                    <div className="flex flex-col truncate">
+                      <span className="text-sm text-white truncate font-medium">{user.email?.split('@')[0]}</span>
+                      <span className="text-[10px] text-zinc-500 truncate">{user.email}</span>
+                    </div>
+                 </div>
+                 <button 
+                  onClick={async () => { await supabase.auth.signOut(); }}
+                  className="text-zinc-500 hover:text-white p-2"
+                  title="退出登录"
+                 >
+                   <LogOut size={18} />
+                 </button>
+              </div>
+            ) : (
+              <button
+                onClick={onOpenAuth}
+                className="w-full flex items-center justify-center gap-2 text-zinc-300 hover:text-white py-2 rounded-lg hover:bg-zinc-800 transition-colors text-sm font-medium"
+              >
+                <UserCircle size={18} />
+                <span>登录 / 注册</span>
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+    </>
   );
 };
 
@@ -335,26 +571,186 @@ const App = () => {
   const [debugLogs, setDebugLogs] = useState<DebugLog[]>([]);
   const [showDebug, setShowDebug] = useState(false);
   
+  // Auth & Session State
+  const [user, setUser] = useState<any>(null);
+  const [sessions, setSessions] = useState<ChatSession[]>([]);
+  const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [isAuthOpen, setIsAuthOpen] = useState(false);
+  
   const chatSessionRef = useRef<Chat | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // --- Scraper Implementation ---
-  const executeSearchBooth = async (keyword: string, attemptIndex: number = 0) => {
-    // Select proxy based on attempt index (round-robin)
-    const proxy = PROXIES[attemptIndex % PROXIES.length];
+  // --- Auth & DB Effects ---
+
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setUser(session?.user ?? null);
+      if (session?.user) fetchSessions();
+    });
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUser(session?.user ?? null);
+      if (session?.user) {
+        fetchSessions();
+      } else {
+        setSessions([]);
+        setCurrentSessionId(null);
+      }
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
+
+  const fetchSessions = async () => {
+    const { data, error } = await supabase
+      .from('chats')
+      .select('id, title, messages, created_at')
+      .order('created_at', { ascending: false });
     
+    if (error) {
+      console.error('Error fetching chats:', error);
+    } else {
+      setSessions((data as any[]) || []);
+    }
+  };
+
+  const saveCurrentSession = async (newMessages: Message[]) => {
+    if (!user) return;
+    
+    // Determine title from first user message
+    const firstUserMsg = newMessages.find(m => m.role === 'user');
+    const title = firstUserMsg ? (firstUserMsg.text.slice(0, 20) + (firstUserMsg.text.length > 20 ? '...' : '')) : 'New Chat';
+
+    try {
+      if (currentSessionId) {
+        // Update existing
+        await supabase
+          .from('chats')
+          .update({ messages: newMessages, updated_at: new Date().toISOString() })
+          .eq('id', currentSessionId);
+        
+        // Update local list
+        setSessions(prev => prev.map(s => s.id === currentSessionId ? { ...s, messages: newMessages } : s));
+      } else {
+        // Create new
+        const { data, error } = await supabase
+          .from('chats')
+          .insert({ 
+            user_id: user.id, 
+            title, 
+            messages: newMessages 
+          })
+          .select()
+          .single();
+        
+        if (data) {
+          setCurrentSessionId(data.id);
+          setSessions(prev => [data, ...prev]);
+        }
+      }
+    } catch (e) {
+      console.error("Save error:", e);
+    }
+  };
+
+  const handleSelectSession = (id: string) => {
+    const session = sessions.find(s => s.id === id);
+    if (session) {
+      setCurrentSessionId(id);
+      setMessages(session.messages);
+      
+      // Convert messages to history for AI context
+      // Note: We skip the 'init' message and complex tool calls for simplicity in this restoration
+      const history: Content[] = session.messages
+        .filter(m => m.id !== 'init' && !m.isStreaming && !m.toolCall)
+        .map(m => ({
+          role: m.role,
+          parts: [{ text: m.text }]
+        }));
+
+      initChat(history, true); 
+    }
+  };
+
+  const handleNewChat = () => {
+    setCurrentSessionId(null);
+    initChat(undefined, false);
+  };
+
+  const handleDeleteSession = async (id: string) => {
+    if (!window.confirm("确定要删除这条对话记录吗？")) return;
+
+    try {
+      const { error } = await supabase
+        .from('chats')
+        .delete()
+        .eq('id', id);
+
+      if (error) throw error;
+
+      setSessions(prev => prev.filter(s => s.id !== id));
+      
+      if (currentSessionId === id) {
+        handleNewChat();
+      }
+    } catch (e) {
+      console.error("Delete error:", e);
+      alert("删除失败，请稍后重试");
+    }
+  };
+
+  // --- Chat Logic ---
+
+  const initChat = (history?: Content[], keepMessages: boolean = false) => {
+     const apiKey = process.env.API_KEY;
+     if (apiKey) {
+      const ai = new GoogleGenAI({ apiKey });
+      const systemPrompt = `
+        你是一个 VRChat Booth 资产导购助手。
+        **工具使用规则**:
+        1. 当用户寻找素材时，**必须**调用 \`search_booth\` 工具。不要凭空编造商品。
+        2. 调用工具前，先将用户的中文关键词翻译成日文。
+        3. 工具会返回真实的搜索结果（JSON格式）。
+        **回复生成规则**:
+        1. 收到工具返回的结果后，请从中挑选 4-8 个最符合用户需求的商品。
+        2. 用 Markdown 列表向用户简要介绍这些商品（标题、价格、推荐理由）。
+        3. **关键**: 在回复的最后，必须包含一个 JSON 代码块，用于前端渲染卡片。
+        **JSON 输出格式**:
+        \`\`\`json
+        [
+          { "id": "商品ID", "title": "完整标题", "shopName": "店铺名", "price": "价格", "url": "...", "imageUrl": "...", "description": "...", "tags": ["Tag1"] }
+        ]
+        \`\`\`
+      `;
+      chatSessionRef.current = ai.chats.create({
+        model: "gemini-3-pro-preview",
+        config: { systemInstruction: systemPrompt, tools: [{ functionDeclarations: [SEARCH_TOOL] }] },
+        history: history
+      });
+      
+      if (!keepMessages) {
+        setMessages([{
+          id: 'init',
+          role: 'model',
+          text: '你好！我是 Booth Hunter。\n\n我是由Oniya开发的Booth商品搜索助手，请告诉我你想要找的VRChat资产吧！',
+          timestamp: Date.now()
+        }]);
+      }
+     }
+  };
+
+  // Scraper implementation
+  const executeSearchBooth = async (keyword: string, attemptIndex: number = 0) => {
+    const proxy = PROXIES[attemptIndex % PROXIES.length];
     try {
       addLog('TOOL_EXEC', `Scraping Booth for: ${keyword} via ${proxy.name} (Attempt ${attemptIndex + 1})`, 'tool');
-      
       const targetUrl = `https://booth.pm/ja/search/${encodeURIComponent(keyword)}`;
       const proxyUrl = proxy.url(targetUrl);
-      
       const res = await fetch(proxyUrl);
       if (!res.ok) throw new Error(`Proxy ${proxy.name} returned ${res.status}`);
-      
       let htmlContent = "";
-      
       if (proxy.type === 'json') {
           const data = await res.json();
           htmlContent = data.contents;
@@ -362,11 +758,6 @@ const App = () => {
       } else {
           htmlContent = await res.text();
       }
-      
-      if (htmlContent.length < 500) {
-           addLog('PROXY_WARN', `Content suspiciously short (${htmlContent.length} chars)`, 'info');
-      }
-
       const parser = new DOMParser();
       const doc = parser.parseFromString(htmlContent, "text/html");
       const items = Array.from(doc.querySelectorAll("li.item-card")).map((el) => {
@@ -377,22 +768,10 @@ const App = () => {
           const url = linkEl?.getAttribute("href") || "";
           const fullUrl = url.startsWith("http") ? url : `https://booth.pm${url}`;
           const id = el.getAttribute("data-product-id") || url.split("/").pop() || "";
-          
           const imgEl = el.querySelector(".item-card__thumbnail-image") as HTMLImageElement;
           const imageUrl = imgEl?.getAttribute("data-original") || imgEl?.getAttribute("data-src") || imgEl?.getAttribute("src") || "";
-
-          return {
-            id,
-            title,
-            shopName,
-            price,
-            url: fullUrl,
-            imageUrl,
-            description: "",
-            tags: []
-          };
+          return { id, title, shopName, price, url: fullUrl, imageUrl, description: "", tags: [] };
       });
-
       addLog('TOOL_RESULT', `Found ${items.length} raw items`, 'success');
       return items.slice(0, 10);
     } catch (e: any) {
@@ -402,54 +781,9 @@ const App = () => {
   };
 
   useEffect(() => {
-    const apiKey = process.env.API_KEY;
-    if (apiKey) {
-      const ai = new GoogleGenAI({ apiKey });
-      
-      const systemPrompt = `
-        你是一个 VRChat Booth 资产导购助手。
-        
-        **工具使用规则**:
-        1.  当用户寻找素材时，**必须**调用 \`search_booth\` 工具。不要凭空编造商品。
-        2.  调用工具前，先将用户的中文关键词翻译成日文。
-        3.  工具会返回真实的搜索结果（JSON格式）。
-
-        **回复生成规则**:
-        1.  收到工具返回的结果后，请从中挑选 4-8 个最符合用户需求的商品。
-        2.  用 Markdown 列表向用户简要介绍这些商品（标题、价格、推荐理由）。
-        3.  **关键**: 在回复的最后，必须包含一个 JSON 代码块，用于前端渲染卡片。
-        
-        **JSON 输出格式**:
-        \`\`\`json
-        [
-          {
-            "id": "商品ID",
-            "title": "完整标题",
-            "shopName": "店铺名",
-            "price": "价格",
-            "url": "https://booth.pm/...",
-            "imageUrl": "工具结果中的图片URL", 
-            "description": "简短中文介绍",
-            "tags": ["Tag1"]
-          }
-        ]
-        \`\`\`
-      `;
-
-      chatSessionRef.current = ai.chats.create({
-        model: "gemini-3-pro-preview",
-        config: {
-          systemInstruction: systemPrompt,
-          tools: [{ functionDeclarations: [SEARCH_TOOL] }],
-        }
-      });
-      
-      setMessages([{
-        id: 'init',
-        role: 'model',
-        text: '你好！我是 Booth Hunter。\n\n现在的我拥有了**实时抓取**能力！\n告诉我你想要什么（例如：“帮我找适合桔梗的朋克风衣服”），我会直接调用工具去 Booth.pm 帮你“爬”下来！',
-        timestamp: Date.now()
-      }]);
+    // Only init if no current session (first load)
+    if (!currentSessionId && messages.length === 0) {
+      initChat(undefined, false);
     }
   }, []);
 
@@ -475,7 +809,6 @@ const App = () => {
     }
   };
 
-  // Helper to parse JSON from text (only at end of stream)
   const extractItems = (text: string): AssetResult[] | undefined => {
     const jsonBlockRegex = /```json\s*(\[[\s\S]*?\])\s*```/i;
     const match = text.match(jsonBlockRegex);
@@ -508,8 +841,13 @@ const App = () => {
       image: userImage || undefined,
       timestamp: Date.now()
     };
-    setMessages(prev => [...prev, userMsg]);
+    
+    // Optimistic update
+    const updatedMessages = [...messages, userMsg];
+    setMessages(updatedMessages);
 
+    // Save immediate user message if desired, but better wait for bot response to save pair
+    
     try {
       addLog('REQ_START', `Sending message...`, 'request');
 
@@ -525,8 +863,8 @@ const App = () => {
         });
       }
 
-      // Initial Placeholder for Streaming
       const modelMsgId = (Date.now() + 1).toString();
+      // Placeholder
       setMessages(prev => [...prev, {
         id: modelMsgId,
         role: 'model',
@@ -537,15 +875,11 @@ const App = () => {
 
       let accumulatedText = "";
       
-      // 1. Send Message Stream
       const stream = await chatSessionRef.current.sendMessageStream({ message: parts });
-      
       let functionCalls: any[] = [];
 
       for await (const chunk of stream) {
-        // Safe text extraction avoiding "non-text parts" warning
         const chunkText = chunk.candidates?.[0]?.content?.parts?.map((p: any) => p.text || "").join("") || "";
-        
         accumulatedText += chunkText;
         setMessages(prev => prev.map(m => m.id === modelMsgId ? { ...m, text: accumulatedText } : m));
         
@@ -554,7 +888,6 @@ const App = () => {
         }
       }
 
-      // 2. Handle Function Calls Loop
       if (functionCalls.length > 0) {
         setProcessingTool(true);
         const toolResponses: any[] = [];
@@ -566,40 +899,25 @@ const App = () => {
           
           if (call.name === "search_booth") {
             const keyword = (call.args as any).keyword;
-            
             let items: AssetResult[] = [];
             let attempts = 0;
             const maxAttempts = 3;
 
-            // Retry logic
             while (attempts < maxAttempts) {
-                // Determine proxy strategy inside executeSearchBooth based on attempt index
                 const currentAttempt = attempts; 
                 attempts++;
                 const isRetry = attempts > 1;
 
-                // Update UI status for retry
                 setMessages(prev => prev.map(m => m.id === modelMsgId ? { 
                     ...m, 
                     toolCall: isRetry ? `搜索 "${keyword}" (重试 ${attempts-1}/${maxAttempts-1})...` : `搜索 "${keyword}"`, 
                     isStreaming: false 
                 } : m));
 
-                if (isRetry) {
-                   addLog('RETRY', `Attempt ${attempts} for ${keyword}`, 'error');
-                }
-
-                // Pass attempts to rotate proxies
+                if (isRetry) addLog('RETRY', `Attempt ${attempts} for ${keyword}`, 'error');
                 items = await executeSearchBooth(keyword, currentAttempt);
-
-                if (items.length > 0) {
-                    break;
-                }
-                
-                // Wait before next retry if failed
-                if (attempts < maxAttempts) {
-                    await new Promise(resolve => setTimeout(resolve, 2000));
-                }
+                if (items.length > 0) break;
+                if (attempts < maxAttempts) await new Promise(resolve => setTimeout(resolve, 2000));
             }
             
             toolResponses.push({
@@ -612,45 +930,39 @@ const App = () => {
           }
         }
 
-        // 3. Send Tool Results & Stream Final Response
         addLog('TOOL_RESP', `Sending ${toolResponses.length} results back`, 'request');
-        
-        // Append a new part to the conversation or continue? 
-        // We just stream the text into the SAME message bubble for seamless UX.
-        // Or create a new bubble if the previous one was just "Thinking..."?
-        // Let's reuse the bubble but clear text if it was empty, or append.
-        
         setMessages(prev => prev.map(m => m.id === modelMsgId ? { ...m, isStreaming: true, text: m.text + "\n\n" } : m));
         
         const toolResult = await chatSessionRef.current.sendMessageStream({ message: toolResponses });
-        
         for await (const chunk of toolResult) {
-          // Safe text extraction
           const chunkText = chunk.candidates?.[0]?.content?.parts?.map((p: any) => p.text || "").join("") || "";
-          
           accumulatedText += chunkText;
           setMessages(prev => prev.map(m => m.id === modelMsgId ? { ...m, text: accumulatedText } : m));
         }
-        
         setProcessingTool(false);
       }
 
-      // 4. Final Processing (JSON Extraction)
       const items = extractItems(accumulatedText);
       let finalText = accumulatedText;
-      
-      // Remove JSON block from display text if items found
       if (items) {
         const jsonBlockRegex = /```json\s*(\[[\s\S]*?\])\s*```/i;
         finalText = accumulatedText.replace(jsonBlockRegex, "").trim();
       }
 
-      setMessages(prev => prev.map(m => m.id === modelMsgId ? { 
-        ...m, 
+      const finalModelMsg: Message = { 
+        id: modelMsgId,
+        role: 'model', 
         text: finalText, 
         items: items, 
-        isStreaming: false 
-      } : m));
+        isStreaming: false,
+        timestamp: Date.now()
+      };
+
+      const finalMessages = [...updatedMessages, finalModelMsg];
+      setMessages(finalMessages);
+      
+      // Save to DB
+      await saveCurrentSession(finalMessages);
 
       addLog('DONE', 'Stream complete', 'success');
 
@@ -660,7 +972,7 @@ const App = () => {
       setMessages(prev => [...prev, {
         id: Date.now().toString(),
         role: 'model',
-        text: "抱歉，连接或解析过程中出现错误，请稍后再试。",
+        text: "出错了！你可以告诉我“重试”来再次尝试。",
         timestamp: Date.now()
       }]);
     } finally {
@@ -669,117 +981,143 @@ const App = () => {
   };
 
   return (
-    <div className="flex flex-col h-screen bg-[#09090b] text-zinc-100 font-sans selection:bg-[#fc4d50] selection:text-white">
+    <div className="flex h-screen bg-[#09090b] text-zinc-100 font-sans selection:bg-[#fc4d50] selection:text-white overflow-hidden">
       
-      <header className="flex-none px-6 py-4 border-b border-zinc-800 bg-[#09090b]/80 backdrop-blur-md z-10 flex justify-between items-center">
-        <div className="flex items-center gap-3">
-          <div className="bg-[#fc4d50] w-9 h-9 rounded-xl flex items-center justify-center text-white font-bold text-xl shadow-[0_0_20px_rgba(252,77,80,0.4)]">
-            B
-          </div>
-          <div>
-            <h1 className="text-xl font-bold tracking-tight leading-none text-white">Booth Hunter</h1>
-            <p className="text-[10px] text-zinc-400 font-mono tracking-wide mt-0.5">GEMINI 3.0 AGENT</p>
-          </div>
-        </div>
-        <button 
-          onClick={() => setShowDebug(!showDebug)}
-          className={`p-2 rounded-lg transition-colors ${showDebug ? 'text-[#fc4d50] bg-zinc-900' : 'text-zinc-500 hover:text-white'}`}
-        >
-          <Terminal size={20} />
-        </button>
-      </header>
+      <Sidebar 
+        isOpen={isSidebarOpen}
+        onClose={() => setIsSidebarOpen(false)}
+        user={user}
+        sessions={sessions}
+        currentSessionId={currentSessionId}
+        onSelectSession={handleSelectSession}
+        onNewChat={handleNewChat}
+        onOpenAuth={() => setIsAuthOpen(true)}
+        onDeleteSession={handleDeleteSession}
+      />
 
-      <main className="flex-grow overflow-y-auto px-4 py-6 scrollbar-thin scrollbar-thumb-zinc-800 scrollbar-track-transparent">
-        <div className="max-w-4xl mx-auto flex flex-col justify-end min-h-full pb-4">
-          {messages.map((msg) => (
-            <ChatMessageBubble key={msg.id} message={msg} />
-          ))}
+      <div className="flex-1 flex flex-col h-full min-w-0">
+        <header className="flex-none px-4 py-4 border-b border-zinc-800 bg-[#09090b]/80 backdrop-blur-md z-10 flex justify-between items-center">
+          <div className="flex items-center gap-3">
+             <button 
+              onClick={() => setIsSidebarOpen(true)}
+              className="md:hidden text-zinc-400 hover:text-white"
+             >
+               <Menu size={24} />
+             </button>
+             <div className="flex items-center gap-3 md:hidden">
+                <div className="bg-[#fc4d50] w-8 h-8 rounded-lg flex items-center justify-center text-white font-bold shadow-[0_0_20px_rgba(252,77,80,0.4)]">B</div>
+             </div>
+             <div className="hidden md:block">
+                <h1 className="text-xl font-bold tracking-tight leading-none text-white">Booth Hunter</h1>
+                <p className="text-[10px] text-zinc-400 font-mono tracking-wide mt-0.5">GEMINI 3.0 AGENT</p>
+             </div>
+          </div>
+          <div className="flex items-center gap-2">
+             <button 
+               onClick={() => setShowDebug(!showDebug)}
+               className={`p-2 rounded-lg transition-colors ${showDebug ? 'text-[#fc4d50] bg-zinc-900' : 'text-zinc-500 hover:text-white'}`}
+             >
+               <Terminal size={20} />
+             </button>
+          </div>
+        </header>
 
-          {/* Loading States */}
-          {(loading && !messages.find(m => m.isStreaming)) && (
-             <div className="flex w-full mb-6 justify-start animate-pulse">
-               <div className="flex flex-col items-start max-w-[85%]">
-                 <div className="flex items-center gap-3 mb-2">
-                   <div className="w-9 h-9 rounded-full bg-[#fc4d50] flex items-center justify-center shadow-lg border border-white/5">
-                     <Loader2 size={18} className="animate-spin text-white" />
+        <main className="flex-grow overflow-y-auto px-4 py-6 scrollbar-thin scrollbar-thumb-zinc-800 scrollbar-track-transparent">
+          <div className="max-w-4xl mx-auto flex flex-col justify-end min-h-full pb-4">
+            {messages.map((msg) => (
+              <ChatMessageBubble key={msg.id} message={msg} />
+            ))}
+
+            {(loading && !messages.find(m => m.isStreaming)) && (
+               <div className="flex w-full mb-6 justify-start animate-pulse">
+                 <div className="flex flex-col items-start max-w-[85%]">
+                   <div className="flex items-center gap-3 mb-2">
+                     <div className="w-9 h-9 rounded-full bg-[#fc4d50] flex items-center justify-center shadow-lg border border-white/5">
+                       <Loader2 size={18} className="animate-spin text-white" />
+                     </div>
+                     <span className="text-sm font-medium text-zinc-400">正在思考...</span>
                    </div>
-                   <span className="text-sm font-medium text-zinc-400">正在思考...</span>
                  </div>
-               </div>
-            </div>
-          )}
-          
-          {processingTool && (
-             <div className="flex w-full mb-6 justify-start animate-fade-in-up">
-               <div className="flex flex-col items-start max-w-[85%]">
-                 <div className="flex items-center gap-2 mb-2 ml-12 text-yellow-500/80 text-xs font-mono">
-                    <Hammer size={12} className="animate-bounce" />
-                    <span>正在抓取 Booth 数据...</span>
+              </div>
+            )}
+            
+            {processingTool && (
+               <div className="flex w-full mb-6 justify-start animate-fade-in-up">
+                 <div className="flex flex-col items-start max-w-[85%]">
+                   <div className="flex items-center gap-2 mb-2 ml-12 text-yellow-500/80 text-xs font-mono">
+                      <Hammer size={12} className="animate-bounce" />
+                      <span>正在抓取 Booth 数据...</span>
+                   </div>
                  </div>
-               </div>
-            </div>
-          )}
+              </div>
+            )}
 
-          <div ref={messagesEndRef} />
-        </div>
-      </main>
+            <div ref={messagesEndRef} />
+          </div>
+        </main>
 
-      <footer className="flex-none p-4 md:p-6 bg-[#09090b] border-t border-zinc-800 z-20">
-        <div className="max-w-4xl mx-auto">
-          {image && (
-            <div className="mb-3 flex items-start animate-fade-in-up">
-              <div className="relative group">
-                <img src={image} alt="Ref" className="h-20 w-20 rounded-xl object-cover border border-zinc-700 shadow-xl" />
-                <button 
-                  onClick={() => setImage(null)}
-                  className="absolute -top-2 -right-2 bg-black text-white rounded-full p-1.5 opacity-80 hover:opacity-100 transition-opacity border border-zinc-700"
+        <footer className="flex-none p-4 md:p-6 bg-[#09090b] border-t border-zinc-800 z-20">
+          <div className="max-w-4xl mx-auto">
+            {image && (
+              <div className="mb-3 flex items-start animate-fade-in-up">
+                <div className="relative group">
+                  <img src={image} alt="Ref" className="h-20 w-20 rounded-xl object-cover border border-zinc-700 shadow-xl" />
+                  <button 
+                    onClick={() => setImage(null)}
+                    className="absolute -top-2 -right-2 bg-black text-white rounded-full p-1.5 opacity-80 hover:opacity-100 transition-opacity border border-zinc-700"
+                  >
+                    <X size={14} />
+                  </button>
+                </div>
+              </div>
+            )}
+
+            <form onSubmit={handleSubmit} className="relative flex items-center gap-3">
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                className="p-3.5 text-zinc-400 hover:text-white hover:bg-zinc-800 rounded-2xl transition-all border border-transparent hover:border-zinc-700"
+                title="Upload Image"
+              >
+                <ImageIcon size={22} />
+              </button>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                onChange={handleImageUpload}
+                className="hidden"
+              />
+              
+              <div className="flex-grow relative">
+                <input
+                  type="text"
+                  value={input}
+                  onChange={(e) => setInput(e.target.value)}
+                  placeholder="描述你想要的素材 (例如: 适用于巧克力的泳衣)..."
+                  className="w-full bg-zinc-900/80 border border-zinc-800 text-zinc-100 rounded-2xl px-5 py-4 pr-14 text-base focus:outline-none focus:border-[#fc4d50] focus:ring-1 focus:ring-[#fc4d50] transition-all placeholder-zinc-600 shadow-inner"
+                />
+                <button
+                  type="submit"
+                  disabled={loading || (!input.trim() && !image)}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 p-2.5 bg-[#fc4d50] text-white rounded-xl hover:bg-[#d93f42] disabled:opacity-50 disabled:bg-zinc-700 transition-all shadow-lg hover:shadow-red-900/30"
                 >
-                  <X size={14} />
+                  <Send size={18} />
                 </button>
               </div>
-            </div>
-          )}
+            </form>
+            <p className="text-center text-[10px] text-zinc-600 mt-3 font-medium">
+              AI 生成内容可能不准确，请以 Booth 实际页面为准。
+            </p>
+          </div>
+        </footer>
+      </div>
 
-          <form onSubmit={handleSubmit} className="relative flex items-center gap-3">
-            <button
-              type="button"
-              onClick={() => fileInputRef.current?.click()}
-              className="p-3.5 text-zinc-400 hover:text-white hover:bg-zinc-800 rounded-2xl transition-all border border-transparent hover:border-zinc-700"
-              title="Upload Image"
-            >
-              <ImageIcon size={22} />
-            </button>
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="image/*"
-              onChange={handleImageUpload}
-              className="hidden"
-            />
-            
-            <div className="flex-grow relative">
-              <input
-                type="text"
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                placeholder="描述你想要的素材 (例如: 桔梗的赛博风外套)..."
-                className="w-full bg-zinc-900/80 border border-zinc-800 text-zinc-100 rounded-2xl px-5 py-4 pr-14 text-base focus:outline-none focus:border-[#fc4d50] focus:ring-1 focus:ring-[#fc4d50] transition-all placeholder-zinc-600 shadow-inner"
-              />
-              <button
-                type="submit"
-                disabled={loading || (!input.trim() && !image)}
-                className="absolute right-2 top-1/2 -translate-y-1/2 p-2.5 bg-[#fc4d50] text-white rounded-xl hover:bg-[#d93f42] disabled:opacity-50 disabled:bg-zinc-700 transition-all shadow-lg hover:shadow-red-900/30"
-              >
-                <Send size={18} />
-              </button>
-            </div>
-          </form>
-          <p className="text-center text-[10px] text-zinc-600 mt-3 font-medium">
-            AI 生成内容可能不准确，请以 Booth 实际页面为准。
-          </p>
-        </div>
-      </footer>
-
+      <AuthModal 
+        isOpen={isAuthOpen} 
+        onClose={() => setIsAuthOpen(false)}
+        onLogin={() => {}} 
+      />
       <DebugConsole logs={debugLogs} isOpen={showDebug} setIsOpen={setShowDebug} />
 
       <style>{`
