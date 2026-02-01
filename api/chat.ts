@@ -105,11 +105,12 @@ export default async function handler(req: any, res: any) {
     // Let's use standard Web Streams API with Response object which Vercel supports.
     
     let body;
-    if (req.json) {
+    if (typeof req.json === 'function') {
         body = await req.json();
     } else {
         // Node.js buffering style if req.json is not available
-        body = JSON.parse(req.body); 
+        // Vercel might have already parsed the body
+        body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
     }
     
     const { messages } = body;
