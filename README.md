@@ -1,20 +1,29 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
-</div>
-
 # Booth Hunter
 
-This contains everything you need to run your app locally.
+AI-powered VRChat asset scout for Booth.pm.
 
-View your app in AI Studio: https://ai.studio/apps/drive/1gtvy5ueh5SDLc2LGEtq4yQVw4pJtc4Bh
+## Features
 
-## Run Locally
+- 🤖 **AI Semantic Search**: Find assets using natural language.
+- 🕷️ **Live Scraping**: Real-time data from Booth.pm.
+- ☁️ **Cloud Sync**: Save chat history with Supabase.
 
-**Prerequisites:**  Node.js
+## Setup
 
+1. **Install dependencies**
+   ```bash
+   npm install
+   ```
 
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+2. **Configure Environment**
+   Create `.env.local` and add:
+   ```env
+   GEMINI_API_KEY=your_key
+   SUPABASE_URL=your_url
+   SUPABASE_ANON_KEY=your_key
+   ```
+
+3. **Run**
+   ```bash
+   npm run dev
+   ```
