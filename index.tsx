@@ -4,6 +4,7 @@ import { GoogleGenAI, Chat, Type, FunctionDeclaration, Content } from "@google/g
 import { Search, Image as ImageIcon, Upload, ExternalLink, Loader2, Sparkles, ShoppingBag, X, AlertCircle, Terminal, ChevronDown, ChevronUp, Send, Bot, User, MoveHorizontal, Hammer, LogOut, History, Plus, Menu, UserCircle, Layout, MessageSquare, Trash2 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import { supabase } from "./supabaseClient";
+import { Analytics } from "@vercel/analytics/react";
 
 // --- Types ---
 
@@ -1139,6 +1140,8 @@ const App = () => {
           canClose={!!user && !!user.email_confirmed_at}
         />
       )}
+
+      <Analytics />
 
       <style>{`
         .cursor-grabbing {
