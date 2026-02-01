@@ -1,18 +1,18 @@
-import { GoogleGenAI, Type } from "@google/genai";
+import { GoogleGenerativeAI, SchemaType } from "@google/generative-ai";
 import * as cheerio from "cheerio";
 
 export const config = {
-  runtime: 'edge', // Using Edge for better streaming support and timeout
+  runtime: 'nodejs', // Using Node.js runtime for stability with cheerio/SDK
 };
 
-const SEARCH_TOOL = {
+const SEARCH_TOOL: any = {
   name: "search_booth",
   description: "Search for VRChat assets on Booth.pm (a marketplace). Use this tool to find real items, prices, and images. Always translate keywords to Japanese before searching.",
   parameters: {
-    type: Type.OBJECT,
+    type: SchemaType.OBJECT,
     properties: {
       keyword: {
-        type: Type.STRING,
+        type: SchemaType.STRING,
         description: "The search keyword in Japanese (e.g., '髪' instead of 'Hair', '衣装' instead of 'Outfit').",
       },
     },
@@ -24,7 +24,6 @@ const SEARCH_TOOL = {
 const PROXIES = [
   { name: "CodeTabs", url: (u: string) => `https://api.codetabs.com/v1/proxy/?quest=${encodeURIComponent(u)}`, type: 'html' },
   { name: "CorsProxy", url: (u: string) => `https://corsproxy.io/?${encodeURIComponent(u)}`, type: 'html' },
-  // Direct fallback
   { name: "Direct", url: (u: string) => u, type: 'html' }
 ];
 
@@ -89,30 +88,39 @@ async function executeSearchBooth(keyword: string) {
   return [];
 }
 
-export default async function handler(req: Request) {
+export default async function handler(req: any, res: any) {
+  // Use Vercel's standard Node.js handler signature if possible, or Web API
+  // Since we use 'nodejs' runtime, we can use standard req/res or Web API if configured.
+  // But let's stick to Web API signature by not using 'res' object methods if we return Response.
+  // Actually, Vercel Node runtime supports Web API Request/Response if we don't use 'res'.
+  
   if (req.method !== 'POST') return new Response('Method Not Allowed', { status: 405 });
 
   try {
-    const { messages } = await req.json();
+    // Need to handle both Web API Request and Node.js IncomingMessage
+    // If runtime is 'nodejs', req is IncomingMessage usually, but we can parse body.
+    // To make it simple and consistent, we'll assume standard JSON body parsing.
+    
+    // BUT wait, in 'nodejs' runtime, we should use res.status().json() or stream.
+    // Let's use standard Web Streams API with Response object which Vercel supports.
+    
+    let body;
+    if (req.json) {
+        body = await req.json();
+    } else {
+        // Node.js buffering style if req.json is not available
+        body = JSON.parse(req.body); 
+    }
+    
+    const { messages } = body;
     const apiKey = process.env.GEMINI_API_KEY;
     
     if (!apiKey) return new Response('Configuration Error: GEMINI_API_KEY missing', { status: 500 });
 
-    const ai = new GoogleGenAI({ apiKey });
-    
-    // Convert frontend messages to Gemini history
-    // Frontend sends: { role: 'user'|'model', text: string, ... }
-    // Gemini expects: { role: 'user'|'model', parts: [{ text: string }] }
-    
-    // We take all messages except the last one as history
-    const history = messages.slice(0, -1).map((m: any) => ({
-        role: m.role,
-        parts: [{ text: m.text }]
-    }));
-
-    const lastMsg = messages[messages.length - 1];
-    
-    const systemPrompt = `
+    const genAI = new GoogleGenerativeAI(apiKey);
+    const model = genAI.getGenerativeModel({ 
+        model: "gemini-2.0-flash",
+        systemInstruction: `
         你是一个 VRChat Booth 资产导购助手。
         **工具使用规则**:
         1. 当用户寻找素材时，**必须**调用 \`search_booth\` 工具。
@@ -128,43 +136,59 @@ export default async function handler(req: Request) {
           { "id": "商品ID", "title": "完整标题", "shopName": "店铺名", "price": "价格", "url": "...", "imageUrl": "...", "description": "...", "tags": ["Tag1"] }
         ]
         \`\`\`
-    `;
-
-    const chat = ai.chats.create({
-      model: "gemini-2.0-flash", // Using flash for speed in serverless
-      config: { 
-          systemInstruction: systemPrompt, 
-          tools: [{ functionDeclarations: [SEARCH_TOOL] }] 
-      },
-      history: history
+        `,
+        tools: [{ functionDeclarations: [SEARCH_TOOL] }]
     });
+    
+    const history = messages.slice(0, -1).map((m: any) => {
+        const parts: any[] = [];
+        if (m.text) parts.push({ text: m.text });
+        if (m.image) {
+             const match = m.image.match(/^data:(.*?);base64,(.*)$/);
+             if (match) {
+                 parts.push({ inlineData: { mimeType: match[1], data: match[2] } });
+             }
+        }
+        if (parts.length === 0) parts.push({ text: " " });
+        return { role: m.role, parts };
+    });
+
+    const chat = model.startChat({ history });
+
+    const lastMsg = messages[messages.length - 1];
+    const lastMsgParts: any[] = [];
+    if (lastMsg.text) lastMsgParts.push({ text: lastMsg.text });
+    if (lastMsg.image) {
+         const match = lastMsg.image.match(/^data:(.*?);base64,(.*)$/);
+         if (match) lastMsgParts.push({ inlineData: { mimeType: match[1], data: match[2] } });
+    }
+    if (lastMsgParts.length === 0) lastMsgParts.push({ text: " " });
 
     const encoder = new TextEncoder();
     const stream = new ReadableStream({
       async start(controller) {
         try {
-          // First turn
-          let result = await chat.sendMessageStream(lastMsg.text);
+          let result = await chat.sendMessageStream(lastMsgParts);
+          
           let functionCalls: any[] = [];
           
-          for await (const chunk of result) {
-             const text = chunk.candidates?.[0]?.content?.parts?.map((p: any) => p.text || "").join("");
+          for await (const chunk of result.stream) {
+             const text = chunk.text();
              if (text) {
                  controller.enqueue(encoder.encode(text));
              }
              
-             // Collect function calls
-             const calls = chunk.functionCalls;
+             // Check for function calls
+             // In @google/generative-ai, chunk.functionCalls() returns array
+             const calls = chunk.functionCalls();
              if (calls && calls.length > 0) {
                  functionCalls.push(...calls);
              }
           }
 
-          // Handle function calls if any
+          // Handle function calls
           if (functionCalls.length > 0) {
               const toolResponses = [];
-              // controller.enqueue(encoder.encode("\n\n*正在搜索 Booth...*\n\n")); 
-
               for (const call of functionCalls) {
                   if (call.name === 'search_booth') {
                       const keyword = (call.args as any).keyword;
@@ -172,17 +196,24 @@ export default async function handler(req: Request) {
                       toolResponses.push({
                           functionResponse: {
                               name: call.name,
-                              id: call.id,
                               response: { result: items }
+                          }
+                      });
+                  } else {
+                      toolResponses.push({
+                          functionResponse: {
+                              name: call.name,
+                              response: { error: "Unknown tool" }
                           }
                       });
                   }
               }
 
               // Send tool results back
-              const toolResultStream = await chat.sendMessageStream(toolResponses as any);
-              for await (const chunk of toolResultStream) {
-                  const text = chunk.candidates?.[0]?.content?.parts?.map((p: any) => p.text || "").join("");
+              // NOTE: In @google/generative-ai, we send Parts array
+              const toolResultStream = await chat.sendMessageStream(toolResponses);
+              for await (const chunk of toolResultStream.stream) {
+                  const text = chunk.text();
                   if (text) {
                       controller.enqueue(encoder.encode(text));
                   }
@@ -206,6 +237,7 @@ export default async function handler(req: Request) {
     });
 
   } catch (e) {
+    console.error(e);
     return new Response(JSON.stringify({ error: String(e) }), { status: 500 });
   }
 }
