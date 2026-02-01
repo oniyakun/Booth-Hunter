@@ -36,67 +36,10 @@ interface ChatSession {
   created_at: string;
 }
 
-interface DebugLog {
-  timestamp: string;
-  label: string;
-  content: string | object;
-  type: 'info' | 'request' | 'response' | 'error' | 'success' | 'tool';
-}
-
 // --- Components ---
 
-const DebugConsole = ({ logs, isOpen, setIsOpen }: { logs: DebugLog[], isOpen: boolean, setIsOpen: (v: boolean) => void }) => {
-  const scrollRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (isOpen && scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-    }
-  }, [logs, isOpen]);
-
-  return (
-    <div className={`fixed bottom-0 left-0 right-0 bg-[#0c0c0e] border-t border-zinc-800 transition-all duration-300 z-50 flex flex-col ${isOpen ? 'h-80' : 'h-10'}`}>
-      <button 
-        onClick={() => setIsOpen(!isOpen)}
-        className="h-10 bg-zinc-900 flex items-center justify-between px-4 text-xs font-mono text-zinc-400 hover:text-white border-b border-zinc-800"
-      >
-        <div className="flex items-center gap-2">
-          <Terminal size={14} />
-          <span>DEBUG CONSOLE {logs.length > 0 && `(${logs.length})`}</span>
-        </div>
-        {isOpen ? <ChevronDown size={14} /> : <ChevronUp size={14} />}
-      </button>
-      
-      {isOpen && (
-        <div ref={scrollRef} className="flex-1 overflow-auto p-4 font-mono text-xs space-y-4">
-          {logs.map((log, i) => (
-            <div key={i} className="border-l-2 border-zinc-800 pl-3">
-              <div className="flex items-center gap-2 mb-1 opacity-50">
-                <span className="text-[10px]">{log.timestamp}</span>
-                <span className={`px-1.5 rounded text-[10px] font-bold ${
-                  log.type === 'request' ? 'bg-blue-900 text-blue-200' :
-                  log.type === 'response' ? 'bg-purple-900 text-purple-200' :
-                  log.type === 'success' ? 'bg-green-900 text-green-200' :
-                  log.type === 'error' ? 'bg-red-900 text-red-200' :
-                  log.type === 'tool' ? 'bg-yellow-900 text-yellow-200' :
-                  'bg-zinc-800 text-zinc-300'
-                }`}>
-                  {log.label}
-                </span>
-              </div>
-              <pre className="whitespace-pre-wrap break-words text-zinc-300 leading-relaxed">
-                {typeof log.content === 'string' ? log.content : JSON.stringify(log.content, null, 2)}
-              </pre>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-};
-
 // Auth Modal Component
-const AuthModal = ({ isOpen, onClose, onLogin }: { isOpen: boolean; onClose: () => void; onLogin: () => void }) => {
+const AuthModal = ({ isOpen, onClose, onLogin, canClose = true }: { isOpen: boolean; onClose: () => void; onLogin: () => void; canClose?: boolean }) => {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [isLogin, setIsLogin] = useState(true);
@@ -134,14 +77,22 @@ const AuthModal = ({ isOpen, onClose, onLogin }: { isOpen: boolean; onClose: () 
   };
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
-      <div className="bg-[#18181b] border border-zinc-800 rounded-2xl w-full max-w-md p-6 shadow-2xl">
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/90 backdrop-blur-md p-4">
+      <div className="bg-[#18181b] border border-zinc-800 rounded-2xl w-full max-w-md p-6 shadow-2xl relative">
         <div className="flex justify-between items-center mb-6">
           <h2 className="text-xl font-bold text-white">{isLogin ? "登录" : "注册"}</h2>
-          <button onClick={onClose} className="text-zinc-400 hover:text-white">
-            <X size={20} />
-          </button>
+          {canClose && (
+            <button onClick={onClose} className="text-zinc-400 hover:text-white">
+              <X size={20} />
+            </button>
+          )}
         </div>
+        
+        {!canClose && (
+          <div className="mb-6 text-sm text-zinc-400 bg-zinc-900/50 p-3 rounded-lg border border-zinc-800/50">
+            👋 欢迎！请先登录或注册以继续使用 Booth Hunter。
+          </div>
+        )}
 
         {error && (
           <div className="mb-4 p-3 bg-red-900/20 border border-red-500/30 rounded-lg text-red-200 text-sm flex items-start gap-2">
@@ -226,7 +177,7 @@ const Sidebar = ({
         />
       )}
       
-      <div className={`fixed inset-y-0 left-0 z-40 w-73 bg-[#0c0c0e] border-r border-zinc-800 transform transition-transform duration-300 ease-in-out ${isOpen ? 'translate-x-0' : '-translate-x-full'} md:translate-x-0 md:static`}>
+      <div className={`fixed inset-y-0 left-0 z-40 w-80 bg-[#0c0c0e] border-r border-zinc-800 transform transition-transform duration-300 ease-in-out ${isOpen ? 'translate-x-0' : '-translate-x-full'} md:translate-x-0 md:static`}>
         <div className="flex flex-col h-full">
           <div className="p-4 border-b border-zinc-800 flex items-center justify-between">
             <div className="flex items-center gap-2 text-white font-bold">
@@ -568,11 +519,10 @@ const App = () => {
   const [image, setImage] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [processingTool, setProcessingTool] = useState(false);
-  const [debugLogs, setDebugLogs] = useState<DebugLog[]>([]);
-  const [showDebug, setShowDebug] = useState(false);
   
   // Auth & Session State
   const [user, setUser] = useState<any>(null);
+  const [authLoading, setAuthLoading] = useState(true);
   const [sessions, setSessions] = useState<ChatSession[]>([]);
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
@@ -587,16 +537,25 @@ const App = () => {
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setUser(session?.user ?? null);
-      if (session?.user) fetchSessions();
+      setAuthLoading(false);
+      if (session?.user) {
+        setIsAuthOpen(false);
+        fetchSessions();
+      } else {
+        setIsAuthOpen(true);
+      }
     });
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setUser(session?.user ?? null);
+      setAuthLoading(false);
       if (session?.user) {
+        setIsAuthOpen(false);
         fetchSessions();
       } else {
         setSessions([]);
         setCurrentSessionId(null);
+        setIsAuthOpen(true);
       }
     });
 
@@ -662,7 +621,6 @@ const App = () => {
       setMessages(session.messages);
       
       // Convert messages to history for AI context
-      // Note: We skip the 'init' message and complex tool calls for simplicity in this restoration
       const history: Content[] = session.messages
         .filter(m => m.id !== 'init' && !m.isStreaming && !m.toolCall)
         .map(m => ({
@@ -745,7 +703,6 @@ const App = () => {
   const executeSearchBooth = async (keyword: string, attemptIndex: number = 0) => {
     const proxy = PROXIES[attemptIndex % PROXIES.length];
     try {
-      addLog('TOOL_EXEC', `Scraping Booth for: ${keyword} via ${proxy.name} (Attempt ${attemptIndex + 1})`, 'tool');
       const targetUrl = `https://booth.pm/ja/search/${encodeURIComponent(keyword)}`;
       const proxyUrl = proxy.url(targetUrl);
       const res = await fetch(proxyUrl);
@@ -772,10 +729,9 @@ const App = () => {
           const imageUrl = imgEl?.getAttribute("data-original") || imgEl?.getAttribute("data-src") || imgEl?.getAttribute("src") || "";
           return { id, title, shopName, price, url: fullUrl, imageUrl, description: "", tags: [] };
       });
-      addLog('TOOL_RESULT', `Found ${items.length} raw items`, 'success');
       return items.slice(0, 10);
     } catch (e: any) {
-      addLog('TOOL_ERROR', `${proxy.name} failed: ${e.message}`, 'error');
+      console.error(`Scrape error (${proxy.name}):`, e.message);
       return [];
     }
   };
@@ -791,19 +747,12 @@ const App = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, loading, processingTool]);
 
-  const addLog = (label: string, content: string | object, type: DebugLog['type'] = 'info') => {
-    const now = new Date();
-    const timestamp = now.toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' }) + '.' + String(now.getMilliseconds()).padStart(3, '0');
-    setDebugLogs(prev => [...prev, { timestamp, label, content, type }]);
-  };
-
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
       const reader = new FileReader();
       reader.onloadend = () => {
         setImage(reader.result as string);
-        addLog('USER_ACTION', `Image attached: ${file.name}`, 'info');
       };
       reader.readAsDataURL(file);
     }
@@ -849,8 +798,6 @@ const App = () => {
     // Save immediate user message if desired, but better wait for bot response to save pair
     
     try {
-      addLog('REQ_START', `Sending message...`, 'request');
-
       const parts: any[] = [{ text: userText }];
       if (userImage) {
         const match = userImage.match(/^data:(.*?);base64,/);
@@ -894,7 +841,6 @@ const App = () => {
         let toolName = "";
 
         for (const call of functionCalls) {
-          addLog('FUNC_CALL', call, 'tool');
           toolName = call.name;
           
           if (call.name === "search_booth") {
@@ -914,7 +860,7 @@ const App = () => {
                     isStreaming: false 
                 } : m));
 
-                if (isRetry) addLog('RETRY', `Attempt ${attempts} for ${keyword}`, 'error');
+                if (isRetry) console.warn(`Attempt ${attempts} for ${keyword} failed`);
                 items = await executeSearchBooth(keyword, currentAttempt);
                 if (items.length > 0) break;
                 if (attempts < maxAttempts) await new Promise(resolve => setTimeout(resolve, 2000));
@@ -930,7 +876,6 @@ const App = () => {
           }
         }
 
-        addLog('TOOL_RESP', `Sending ${toolResponses.length} results back`, 'request');
         setMessages(prev => prev.map(m => m.id === modelMsgId ? { ...m, isStreaming: true, text: m.text + "\n\n" } : m));
         
         const toolResult = await chatSessionRef.current.sendMessageStream({ message: toolResponses });
@@ -964,10 +909,8 @@ const App = () => {
       // Save to DB
       await saveCurrentSession(finalMessages);
 
-      addLog('DONE', 'Stream complete', 'success');
-
     } catch (err: any) {
-      addLog('ERROR', err.message, 'error');
+      console.error(err);
       setProcessingTool(false);
       setMessages(prev => [...prev, {
         id: Date.now().toString(),
@@ -1011,14 +954,6 @@ const App = () => {
                 <h1 className="text-xl font-bold tracking-tight leading-none text-white">Booth Hunter</h1>
                 <p className="text-[10px] text-zinc-400 font-mono tracking-wide mt-0.5">GEMINI 3.0 AGENT</p>
              </div>
-          </div>
-          <div className="flex items-center gap-2">
-             <button 
-               onClick={() => setShowDebug(!showDebug)}
-               className={`p-2 rounded-lg transition-colors ${showDebug ? 'text-[#fc4d50] bg-zinc-900' : 'text-zinc-500 hover:text-white'}`}
-             >
-               <Terminal size={20} />
-             </button>
           </div>
         </header>
 
@@ -1113,12 +1048,14 @@ const App = () => {
         </footer>
       </div>
 
-      <AuthModal 
-        isOpen={isAuthOpen} 
-        onClose={() => setIsAuthOpen(false)}
-        onLogin={() => {}} 
-      />
-      <DebugConsole logs={debugLogs} isOpen={showDebug} setIsOpen={setShowDebug} />
+      {!authLoading && (
+        <AuthModal 
+          isOpen={isAuthOpen} 
+          onClose={() => setIsAuthOpen(false)}
+          onLogin={() => setIsAuthOpen(false)}
+          canClose={!!user}
+        />
+      )}
 
       <style>{`
         .cursor-grabbing {
