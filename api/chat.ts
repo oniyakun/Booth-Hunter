@@ -10,14 +10,19 @@ const TOOLS: any[] = [
     type: "function",
     function: {
       name: "search_booth",
-      description: "Search for VRChat assets on Booth.pm (a marketplace). Use this tool to find real items, prices, and images. Always translate keywords to Japanese before searching.",
+      description: "Search for VRChat assets on Booth.pm (a marketplace). Always translate keywords to Japanese before searching. If user wants more or different results, change keywords or increment the page number.",
       parameters: {
         type: "object",
         properties: {
           keyword: {
             type: "string",
-            description: "The search keyword in Japanese (e.g., '髪' instead of 'Hair', '衣装' instead of 'Outfit').",
+            description: "The search keyword in Japanese.",
           },
+          page: {
+            type: "integer",
+            description: "The page number (starts from 1). Use this to get different results for the same keyword.",
+            default: 1
+          }
         },
         required: ["keyword"],
       },
@@ -31,13 +36,13 @@ const PROXIES = [
   { name: "CorsProxy", url: (u: string) => `https://corsproxy.io/?${encodeURIComponent(u)}`, type: 'html' }
 ];
 
-async function executeSearchBooth(keyword: string) {
-  console.log(`[Scraper] Starting search for: "${keyword}"`);
+async function executeSearchBooth(keyword: string, page: number = 1) {
+  console.log(`[Scraper] Starting search for: "${keyword}" (Page ${page})`);
   for (const proxy of PROXIES) {
     let timeoutId: any;
     try {
       console.log(`[Scraper] Attempting via ${proxy.name}...`);
-      const targetUrl = `https://booth.pm/ja/search/${encodeURIComponent(keyword)}`;
+      const targetUrl = `https://booth.pm/ja/search/${encodeURIComponent(keyword)}?page=${page}`;
       const fetchUrl = proxy.url(targetUrl);
       
       const controller = new AbortController();
@@ -75,6 +80,7 @@ async function executeSearchBooth(keyword: string) {
           const urlPath = linkEl.attr("href") || "";
           const fullUrl = urlPath.startsWith("http") ? urlPath : `https://booth.pm${urlPath}`;
           const id = $el.attr("data-product-id") || urlPath.split("/").pop() || "";
+          
           const imgEl = $el.find(".item-card__thumbnail-image");
           const imageUrl = imgEl.attr("data-original") || imgEl.attr("data-src") || imgEl.attr("src") || "";
           items.push({ id, title, shopName, price, url: fullUrl, imageUrl, description: "", tags: [] });
@@ -109,7 +115,7 @@ export default async function handler(req: any) {
 
     const openai = new OpenAI({ apiKey, baseURL });
 
-    // Transform messages to OpenAI format
+    // Transform messages to OpenAI format (supporting image_url)
     const openAIMessages: any[] = [
         {
             role: "system",
@@ -120,7 +126,8 @@ export default async function handler(req: any) {
         1. 当用户寻找素材时，**必须**调用 \`search_booth\` 工具，不要凭空编造商品！
         2. 调用工具前，先将用户的中文关键词翻译成日文。
         3. 工具会返回真实的搜索结果（JSON格式）。
-        4. **多轮搜索逻辑**: 如果第一次搜索的结果中没有符合用户要求的物品，或者结果太少，请尝试更换关键词（例如：更具体的描述、同义词、或者拆分关键词）再次调用工具，直到你找到足够多（建议 4-8 个）符合条件的商品。
+        4. **结果多样性**: 当用户要求“再找找”、“换一批”或对当前结果不满意时，你**必须**采取行动：要么更换更精准/不同的关键词，要么通过增加 \`page\` 参数来获取后续页面的商品。严禁重复推荐用户已经看过的相同商品。
+        5. **多轮搜索逻辑**: 如果第一次搜索的结果中没有符合用户要求的物品，或者结果太少，请尝试优化关键词再次调用工具，直到你找到足够多（建议 4-8 个）符合条件的商品。
 
         **回复生成规则**:
         1. 收到工具返回的结果后，请从中挑选 4-8 个最符合用户需求的商品。
@@ -144,11 +151,29 @@ export default async function handler(req: any) {
         \`\`\`
             `
         },
-        ...messages.map((m: any) => ({
-            role: m.role === 'model' ? 'assistant' : 'user',
-            content: m.text
-            // Image handling for OpenAI if needed: content: [{ type: 'text', text: m.text }, { type: 'image_url', image_url: ... }]
-        }))
+        ...messages.map((m: any) => {
+            const role = m.role === 'model' ? 'assistant' : 'user';
+            
+            if (m.image) {
+                return {
+                    role,
+                    content: [
+                        { type: "text", text: m.text || "请分析这张图片并根据其风格在 Booth 上寻找相似的 VRChat 资产。" },
+                        {
+                            type: "image_url",
+                            image_url: {
+                                url: m.image // Base64 data URI
+                            }
+                        }
+                    ]
+                };
+            }
+            
+            return {
+                role,
+                content: m.text
+            };
+        })
     ];
 
     const encoder = new TextEncoder();
@@ -156,7 +181,7 @@ export default async function handler(req: any) {
       async start(controller) {
         let currentMessages = [...openAIMessages];
         let turn = 0;
-        const maxTurns = 4; // Allow up to 3 tool call loops
+        const maxTurns = 4; 
 
         try {
           while (turn < maxTurns) {
@@ -182,7 +207,11 @@ export default async function handler(req: any) {
               if (delta?.tool_calls) {
                 for (const tc of delta.tool_calls) {
                   if (tc.id) {
-                      toolCalls[tc.index] = { ...tc, function: { name: tc.function?.name || "", arguments: tc.function?.arguments || "" } };
+                      toolCalls[tc.index] = { 
+                          id: tc.id, 
+                          type: "function",
+                          function: { name: tc.function?.name || "", arguments: tc.function?.arguments || "" } 
+                      };
                   } else {
                       if (toolCalls[tc.index]) {
                           toolCalls[tc.index].function.arguments += tc.function?.arguments || "";
@@ -192,21 +221,20 @@ export default async function handler(req: any) {
               }
             }
 
-            // Check if AI wants to use tools
             if (toolCalls.length > 0) {
               console.log(`[OpenAI] Turn ${turn} requested ${toolCalls.length} tools`);
               controller.enqueue(encoder.encode(`__STATUS__:正在搜寻相关资产 (第${turn}轮尝试)...`));
               
               const toolResults = [];
               for (const tc of toolCalls) {
-                let args = { keyword: "" };
+                let args = { keyword: "", page: 1 };
                 try {
                     args = JSON.parse(tc.function.arguments);
                 } catch (e) {
                     console.error("[OpenAI] Arg parse fail:", tc.function.arguments);
                 }
                 
-                const items = await executeSearchBooth(args.keyword);
+                const items = await executeSearchBooth(args.keyword, args.page || 1);
                 const simplifiedItems = items.slice(0, 5).map(item => ({
                     title: item.title,
                     price: item.price,
@@ -223,31 +251,22 @@ export default async function handler(req: any) {
                 });
               }
 
-              // Update history for next iteration
               currentMessages.push({ role: "assistant", content: fullContent || null, tool_calls: toolCalls });
               currentMessages.push(...toolResults);
               
-              // If we reached maxTurns, we MUST break and let the final summary handler take over
               if (turn >= maxTurns) {
-                  console.log("[OpenAI] Max turns reached after tool call. Proceeding to final summary.");
+                  console.log("[OpenAI] Max turns reached after tool call.");
                   break;
               }
-              
               continue; 
             } else {
-              // No tool calls this time, breaking loop to finish.
               break; 
             }
           }
 
-          // FINAL SUMMARY HANDLER: 
-          // If the last turn ended with tool results but no content reply, 
-          // or if we simply need a clean exit with a summary.
-          const lastMessage = currentMessages[currentMessages.length - 1];
-          const hasToolsButNoReply = currentMessages.some(m => m.role === 'tool') && !currentMessages.some(m => m.role === 'assistant' && m.content && m.content.length > 10);
-
-          if (hasToolsButNoReply) {
-              console.log("[OpenAI] Final Phase: Generating summary from all results...");
+          const lastMsgInHistory = currentMessages[currentMessages.length - 1];
+          if (lastMsgInHistory && lastMsgInHistory.role === 'tool') {
+              console.log("[OpenAI] Final Phase: Generating summary...");
               controller.enqueue(encoder.encode("__STATUS__:正在为您整理最佳推荐..."));
               
               const forceResponse = await openai.chat.completions.create({
@@ -269,14 +288,13 @@ export default async function handler(req: any) {
               }
               
               if (!finalReplyText.trim()) {
-                  console.log("[OpenAI] Critical failure: No summary produced. Manual fallback.");
+                  console.log("[OpenAI] Manual fallback triggered.");
                   controller.enqueue(encoder.encode("抱歉，我找到了搜索结果但目前无法生成文字。请查看以下卡片：\n\n"));
                   const allItems = currentMessages
                     .filter(m => m.role === 'tool')
                     .map(m => JSON.parse(m.content))
                     .flat()
                     .slice(0, 8);
-                  
                   const manualJson = `\n\n\`\`\`json\n${JSON.stringify(allItems)}\n\`\`\``;
                   controller.enqueue(encoder.encode(manualJson));
               }
