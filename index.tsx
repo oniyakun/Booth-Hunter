@@ -716,9 +716,13 @@ const App = () => {
 
       while (true) {
         const { done, value } = await reader.read();
-        if (done) break;
+        if (done) {
+          console.log("[Stream] Done reading.");
+          break;
+        }
         
         const chunk = decoder.decode(value, { stream: true });
+        console.log(`[Stream] Received chunk: ${chunk.substring(0, 30)}...`);
         accumulatedText += chunk;
         setMessages(prev => prev.map(m => m.id === modelMsgId ? { ...m, text: accumulatedText } : m));
       }
@@ -741,9 +745,10 @@ const App = () => {
 
       const finalMessages = [...updatedMessages, finalModelMsg];
       setMessages(finalMessages);
+      setLoading(false); // Stop loading early to improve perceived performance
       
-      // Save to DB
-      await saveCurrentSession(finalMessages);
+      // Save to DB in background
+      saveCurrentSession(finalMessages).catch(e => console.error("Auto-save failed:", e));
 
     } catch (err: any) {
       console.error(err);
