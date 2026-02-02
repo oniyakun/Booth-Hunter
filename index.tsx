@@ -764,9 +764,21 @@ const App = () => {
   const canUseApp = !!user && emailVerified;
   
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const scrollContainerRef = useRef<HTMLElement | null>(null);
+  const isAtBottomRef = useRef(true);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const sessionMessagesCacheRef = useRef<Record<string, Message[]>>({});
   const sessionMessagesInFlightRef = useRef<Record<string, Promise<Message[]>>>({});
+
+  const updateIsAtBottom = () => {
+    const el = scrollContainerRef.current;
+    if (!el) return;
+
+    // Treat near-bottom as bottom to avoid 1-2px rounding issues
+    const thresholdPx = 48;
+    const atBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - thresholdPx;
+    isAtBottomRef.current = atBottom;
+  };
 
   // --- Auth & DB Effects ---
 
@@ -1003,8 +1015,11 @@ const App = () => {
   }, [authLoading, user?.id, user?.email_confirmed_at, user?.confirmed_at]);
 
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, loading, processingTool]);
+    // Only auto-scroll when user is already at (or near) the bottom.
+    // If user scrolls up to read history, we stop forcing scroll to bottom.
+    if (!isAtBottomRef.current) return;
+    messagesEndRef.current?.scrollIntoView({ behavior: reducedMotion ? "auto" : "smooth" });
+  }, [messages, loading, processingTool, reducedMotion]);
 
   const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -1067,6 +1082,19 @@ const App = () => {
     
     const updatedMessages = [...messages, userMsg];
     setMessages(updatedMessages);
+
+    // If user sends a message while reading history, jump to bottom and resume auto-scroll
+    // so they can follow the conversation.
+    requestAnimationFrame(() => {
+      try {
+        const el = scrollContainerRef.current;
+        if (el) {
+          el.scrollTop = el.scrollHeight;
+        }
+      } finally {
+        isAtBottomRef.current = true;
+      }
+    });
 
     try {
       const modelMsgId = (Date.now() + 1).toString();
@@ -1213,7 +1241,14 @@ const App = () => {
           </a>
         </header>
 
-        <main className="flex-grow overflow-y-auto px-4 py-6">
+        <main
+          ref={(el) => {
+            // TS: main is HTMLElement
+            scrollContainerRef.current = el;
+          }}
+          onScroll={() => updateIsAtBottom()}
+          className="flex-grow overflow-y-auto px-4 py-6"
+        >
           <div className="max-w-4xl lg:max-w-6xl 2xl:max-w-7xl mx-auto flex flex-col justify-end min-h-full pb-4">
             {sessionMessagesLoading ? (
               <div className={reducedMotion ? '' : 'bh-anim-fade-up'}>
