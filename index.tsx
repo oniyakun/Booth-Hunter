@@ -91,6 +91,11 @@ async function compressImageFileToJpegDataUrl(
   }
 }
 
+function isUserEmailVerified(user: any): boolean {
+  // Supabase user object typically provides one of these fields when email is confirmed.
+  return Boolean(user?.email_confirmed_at || user?.confirmed_at);
+}
+
 // --- Types ---
 
 interface AssetResult {
@@ -119,7 +124,6 @@ interface Message {
 interface ChatSession {
   id: string;
   title: string;
-  messages: Message[];
   created_at: string;
 }
 
@@ -147,11 +151,26 @@ const AuthModal = ({ isOpen, onClose, onLogin, canClose = true }: { isOpen: bool
         onLogin();
         onClose();
       } else {
-        const { error } = await supabase.auth.signUp({ email, password });
+        const { data, error } = await supabase.auth.signUp({
+          email,
+          password,
+          options: {
+            // 需要在 Supabase Auth 配置里把该 URL 加到 Redirect URLs 白名单
+            emailRedirectTo: window.location.origin,
+          },
+        });
         if (error) throw error;
-        setError("注册成功！");
-        onLogin();
-        onClose();
+
+        // 注意：为了防止“枚举邮箱”，Supabase 在邮箱已存在时也可能返回成功。
+        // 经验规则：当该邮箱已存在时，data.user.identities 往往为空数组。
+        const identities = (data as any)?.user?.identities;
+        const isExistingAccount = Array.isArray(identities) && identities.length === 0;
+        if (isExistingAccount) {
+          setError("该邮箱已注册，请直接登录。如果你还没验证邮箱：登录后会看到验证提示，可重新发送验证邮件。");
+        } else {
+          setError("注册成功！请前往邮箱点击验证链接完成验证，然后再回来登录。");
+        }
+        setIsLogin(true);
       }
     } catch (err: any) {
       setError(err.message);
@@ -246,7 +265,7 @@ const Sidebar = ({
   user: any; 
   sessions: ChatSession[]; 
   currentSessionId: string | null; 
-  onSelectSession: (id: string) => void; 
+  onSelectSession: (id: string) => void | Promise<void>; 
   onNewChat: () => void;
   onOpenAuth: () => void;
   onDeleteSession: (id: string) => void;
@@ -600,20 +619,38 @@ const App = () => {
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isAuthOpen, setIsAuthOpen] = useState(false);
+
+  const emailVerified = !!(user && isUserEmailVerified(user));
+  const canUseApp = !!user && emailVerified;
   
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const sessionMessagesCacheRef = useRef<Record<string, Message[]>>({});
+  const sessionMessagesInFlightRef = useRef<Record<string, Promise<Message[]>>>({});
 
   // --- Auth & DB Effects ---
 
   useEffect(() => {
+    // Handle possible redirect from Supabase email verification / OAuth (PKCE)
+    // If URL contains ?code=..., exchange it for a session.
+    const url = new URL(window.location.href);
+    if (url.searchParams.get("code")) {
+      supabase.auth.exchangeCodeForSession(window.location.href)
+        .then(() => {
+          // remove code from URL for cleanliness
+          url.searchParams.delete("code");
+          window.history.replaceState({}, document.title, url.toString());
+        })
+        .catch((e) => console.warn("[Auth] exchangeCodeForSession failed:", e));
+    }
+
     supabase.auth.getSession().then(({ data: { session } }) => {
       setUser(session?.user ?? null);
       setAuthLoading(false);
-      if (session?.user) {
+      if (session?.user && isUserEmailVerified(session.user)) {
         setIsAuthOpen(false);
-        fetchSessions();
       } else {
+        // 未登录或未验证邮箱，都不允许继续使用。
         setIsAuthOpen(true);
       }
     });
@@ -621,9 +658,8 @@ const App = () => {
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setUser(session?.user ?? null);
       setAuthLoading(false);
-      if (session?.user) {
+      if (session?.user && isUserEmailVerified(session.user)) {
         setIsAuthOpen(false);
-        fetchSessions();
       } else {
         setSessions([]);
         setCurrentSessionId(null);
@@ -634,10 +670,13 @@ const App = () => {
     return () => subscription.unsubscribe();
   }, []);
 
-  const fetchSessions = async () => {
+  const fetchSessions = async (targetUser?: any) => {
+    const u = targetUser ?? user;
+    if (!u || !isUserEmailVerified(u)) return;
     const { data, error } = await supabase
       .from('chats')
-      .select('id, title, messages, created_at')
+      // 仅加载列表元信息，避免首次进入就拉取所有对话 messages
+      .select('id, title, created_at')
       .order('created_at', { ascending: false });
     
     if (error) {
@@ -648,7 +687,7 @@ const App = () => {
   };
 
   const saveCurrentSession = async (newMessages: Message[]) => {
-    if (!user) return;
+    if (!user || !isUserEmailVerified(user)) return;
     
     // Determine title from first user message
     const firstUserMsg = newMessages.find(m => m.role === 'user');
@@ -662,8 +701,11 @@ const App = () => {
           .update({ messages: newMessages, updated_at: new Date().toISOString() })
           .eq('id', currentSessionId);
         
-        // Update local list
-        setSessions(prev => prev.map(s => s.id === currentSessionId ? { ...s, messages: newMessages } : s));
+        // Update local list (metadata only)
+        setSessions(prev => prev.map(s => s.id === currentSessionId ? { ...s, title } : s));
+
+        // Keep cache in sync for the currently-open session
+        sessionMessagesCacheRef.current[currentSessionId] = newMessages;
       } else {
         // Create new
         const { data, error } = await supabase
@@ -678,7 +720,11 @@ const App = () => {
         
         if (data) {
           setCurrentSessionId(data.id);
-          setSessions(prev => [data, ...prev]);
+          // Insert into local list (metadata only)
+          setSessions(prev => [{ id: data.id, title: data.title, created_at: data.created_at }, ...prev]);
+
+          // Seed cache for newly created session
+          sessionMessagesCacheRef.current[data.id] = newMessages;
         }
       }
     } catch (e) {
@@ -686,11 +732,45 @@ const App = () => {
     }
   };
 
-  const handleSelectSession = (id: string) => {
-    const session = sessions.find(s => s.id === id);
-    if (session) {
-      setCurrentSessionId(id);
-      setMessages(session.messages);
+  const handleSelectSession = async (id: string) => {
+    if (!user || !isUserEmailVerified(user)) return;
+    setCurrentSessionId(id);
+
+    // Cache hit: don't request again
+    const cached = sessionMessagesCacheRef.current[id];
+    if (cached) {
+      setMessages(cached);
+      return;
+    }
+
+    // In-flight de-duplication
+    if (!sessionMessagesInFlightRef.current[id]) {
+      sessionMessagesInFlightRef.current[id] = (async () => {
+        const { data, error } = await supabase
+          .from('chats')
+          .select('messages')
+          .eq('id', id)
+          .single();
+
+        if (error) {
+          throw error;
+        }
+
+        const msgs = (((data as any)?.messages as Message[]) || []);
+        sessionMessagesCacheRef.current[id] = msgs;
+        return msgs;
+      })().finally(() => {
+        delete sessionMessagesInFlightRef.current[id];
+      });
+    }
+
+    try {
+      const msgs = await sessionMessagesInFlightRef.current[id];
+      // If user switched quickly, ensure we only apply to currently selected session
+      setMessages(msgs);
+    } catch (e: any) {
+      console.error('Error fetching chat messages:', e);
+      alert('加载对话失败，请稍后重试');
     }
   };
 
@@ -700,6 +780,7 @@ const App = () => {
   };
 
   const handleDeleteSession = async (id: string) => {
+    if (!user || !isUserEmailVerified(user)) return;
     if (!window.confirm("确定要删除这条对话记录吗？")) return;
 
     try {
@@ -740,6 +821,14 @@ const App = () => {
       initChat(false);
     }
   }, []);
+
+  // When a verified user becomes available (e.g. after refresh / verification), load sessions.
+  useEffect(() => {
+    if (!authLoading && user && isUserEmailVerified(user)) {
+      fetchSessions(user);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [authLoading, user?.id, user?.email_confirmed_at, user?.confirmed_at]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -786,6 +875,7 @@ const App = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!canUseApp) return;
     if ((!input.trim() && !image) || loading || imageProcessing) return;
 
     const userText = input;
@@ -997,7 +1087,7 @@ const App = () => {
               <button
                 type="button"
                 onClick={() => fileInputRef.current?.click()}
-                disabled={imageProcessing}
+                disabled={imageProcessing || !canUseApp}
                 className="p-3.5 text-zinc-400 hover:text-white hover:bg-zinc-800 rounded-2xl transition-all border border-transparent hover:border-zinc-700 disabled:opacity-60 disabled:hover:bg-transparent disabled:cursor-not-allowed"
                 title="Upload Image"
               >
@@ -1016,12 +1106,13 @@ const App = () => {
                   type="text"
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
-                  placeholder="描述你想要的素材 (例如: 适用于巧克力的泳衣)..."
+                  disabled={!canUseApp}
+                  placeholder={canUseApp ? "描述你想要的素材 (例如: 适用于巧克力的泳衣)..." : "请先登录并完成邮箱验证后继续使用"}
                   className="w-full bg-zinc-900/80 border border-zinc-800 text-zinc-100 rounded-2xl px-5 py-4 pr-14 text-base focus:outline-none focus:border-[#fc4d50] focus:ring-1 focus:ring-[#fc4d50] transition-all placeholder-zinc-600 shadow-inner"
                 />
                 <button
                   type="submit"
-                  disabled={loading || imageProcessing || (!input.trim() && !image)}
+                  disabled={!canUseApp || loading || imageProcessing || (!input.trim() && !image)}
                   className="absolute right-2 top-1/2 -translate-y-1/2 p-2.5 bg-[#fc4d50] text-white rounded-xl hover:bg-[#d93f42] disabled:opacity-50 disabled:bg-zinc-700 transition-all shadow-lg hover:shadow-red-900/30"
                 >
                   <Send size={18} />
@@ -1040,8 +1131,58 @@ const App = () => {
           isOpen={isAuthOpen} 
           onClose={() => setIsAuthOpen(false)}
           onLogin={() => setIsAuthOpen(false)}
-          canClose={!!user}
+          canClose={canUseApp}
         />
+      )}
+
+      {/* Email verification gate: logged in but not verified */}
+      {!authLoading && user && !emailVerified && (
+        <div className="fixed inset-0 z-[65] flex items-center justify-center bg-black/90 backdrop-blur-md p-4">
+          <div className="bg-[#18181b] border border-zinc-800 rounded-2xl w-full max-w-md p-6 shadow-2xl">
+            <h2 className="text-xl font-bold text-white mb-3">请先验证邮箱</h2>
+            <p className="text-sm text-zinc-400 leading-relaxed mb-5">
+              你的账号 <span className="text-zinc-200 font-medium">{user.email}</span> 尚未通过邮箱验证。
+              为了继续使用 Booth Hunter，请前往邮箱点击验证链接。
+            </p>
+
+            <div className="flex gap-3">
+              <button
+                onClick={async () => {
+                  try {
+                    const { error } = await supabase.auth.resend({ type: "signup", email: user.email });
+                    if (error) throw error;
+                    alert("已重新发送验证邮件，请检查收件箱/垃圾箱");
+                  } catch (e: any) {
+                    alert(e?.message || "发送失败，请稍后重试");
+                  }
+                }}
+                className="flex-1 bg-zinc-800 hover:bg-zinc-700 text-white font-bold py-2.5 rounded-lg transition-colors border border-zinc-700"
+              >
+                重新发送验证邮件
+              </button>
+              <button
+                onClick={async () => {
+                  // Refresh user to pick up latest confirmation status
+                  const { data } = await supabase.auth.getUser();
+                  setUser(data.user ?? null);
+                }}
+                className="bg-zinc-900 hover:bg-zinc-800 text-zinc-200 font-bold py-2.5 px-4 rounded-lg transition-colors border border-zinc-700"
+                title="我已完成验证，刷新状态"
+              >
+                刷新
+              </button>
+            </div>
+
+            <button
+              onClick={async () => {
+                await supabase.auth.signOut();
+              }}
+              className="mt-4 w-full text-sm text-zinc-400 hover:text-white py-2 rounded-lg hover:bg-zinc-900 transition-colors"
+            >
+              退出登录
+            </button>
+          </div>
+        </div>
       )}
 
       <Analytics />
