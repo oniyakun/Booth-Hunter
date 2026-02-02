@@ -127,7 +127,7 @@ export default async function handler(req: any) {
         2. 调用工具前，先将用户的中文关键词翻译成日文。
         3. 工具会返回真实的搜索结果（JSON格式）。
         4. **结果多样性**: 当用户要求“再找找”、“换一批”或对当前结果不满意时，你**必须**采取行动：要么更换更精准/不同的关键词，要么通过增加 \`page\` 参数来获取后续页面的商品。要记住之前对话里面已经展示过的商品，不要对用户重复展示相同的商品！
-        5. **多轮搜索逻辑**: 如果第一次搜索的结果中没有符合用户要求的物品，或者结果太少，请尝试优化关键词再次调用工具，直到你找到足够多（建议 4-8 个）符合条件的商品。
+        5. **多轮搜索逻辑**: 如果第一次搜索的结果中没有符合用户要求的物品，或者结果太少，或者有重复结果，请尝试优化关键词再次调用工具，直到你找到足够多（建议 4-8 个）符合条件的商品。
 
         **回复生成规则**:
         1. 收到工具返回的结果后，请从中挑选 4-8 个最符合用户需求的商品。
@@ -181,7 +181,7 @@ export default async function handler(req: any) {
       async start(controller) {
         let currentMessages = [...openAIMessages];
         let turn = 0;
-        const maxTurns = 4; 
+        const maxTurns = 8; 
         let lastTurnProducedText = false;
 
         try {
