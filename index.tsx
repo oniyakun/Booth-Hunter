@@ -127,6 +127,36 @@ interface ChatSession {
   created_at: string;
 }
 
+// --- Animation helpers ---
+const usePrefersReducedMotion = () => {
+  const [reduced, setReduced] = useState(false);
+
+  useEffect(() => {
+    const mq = window.matchMedia?.('(prefers-reduced-motion: reduce)');
+    if (!mq) return;
+
+    const onChange = () => setReduced(!!mq.matches);
+    onChange();
+
+    // Safari / older browsers fallback
+    if (typeof (mq as any).addEventListener === 'function') {
+      (mq as any).addEventListener('change', onChange);
+      return () => (mq as any).removeEventListener('change', onChange);
+    }
+
+    (mq as any).addListener?.(onChange);
+    return () => (mq as any).removeListener?.(onChange);
+  }, []);
+
+  return reduced;
+};
+
+const getStaggerStyle = (index: number, enabled: boolean, baseMs: number = 40, maxMs: number = 320) => {
+  if (!enabled) return undefined;
+  const delay = Math.min(index * baseMs, maxMs);
+  return { animationDelay: `${delay}ms` } as React.CSSProperties;
+};
+
 // --- Components ---
 
 // Auth Modal Component
@@ -180,12 +210,12 @@ const AuthModal = ({ isOpen, onClose, onLogin, canClose = true }: { isOpen: bool
   };
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/90 backdrop-blur-md p-4">
-      <div className="bg-[#18181b] border border-zinc-800 rounded-2xl w-full max-w-md p-6 shadow-2xl relative">
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/80 backdrop-blur-md p-4">
+      <div className="w-full max-w-md p-6 relative bh-surface-strong rounded-3xl bh-anim-pop">
         <div className="flex justify-between items-center mb-6">
           <h2 className="text-xl font-bold text-white">{isLogin ? "登录" : "注册"}</h2>
           {canClose && (
-            <button onClick={onClose} className="text-zinc-400 hover:text-white">
+            <button onClick={onClose} className="text-zinc-400 hover:text-white bh-icon-btn p-2" aria-label="关闭登录弹窗">
               <X size={20} />
             </button>
           )}
@@ -193,7 +223,7 @@ const AuthModal = ({ isOpen, onClose, onLogin, canClose = true }: { isOpen: bool
         
         {!canClose && (
           <div className="mb-6 text-sm text-zinc-400 bg-zinc-900/50 p-3 rounded-lg border border-zinc-800/50">
-            👋 欢迎！请先登录或注册以继续使用 Booth Hunter。
+            欢迎！请先登录或注册以继续使用 Booth Hunter。
           </div>
         )}
 
@@ -211,7 +241,7 @@ const AuthModal = ({ isOpen, onClose, onLogin, canClose = true }: { isOpen: bool
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              className="w-full bg-zinc-900 border border-zinc-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-[#fc4d50]"
+              className="w-full rounded-xl px-4 py-3 text-white focus:outline-none bh-input"
               required
             />
           </div>
@@ -221,14 +251,14 @@ const AuthModal = ({ isOpen, onClose, onLogin, canClose = true }: { isOpen: bool
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              className="w-full bg-zinc-900 border border-zinc-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-[#fc4d50]"
+              className="w-full rounded-xl px-4 py-3 text-white focus:outline-none bh-input"
               required
             />
           </div>
           <button
             type="submit"
             disabled={loading}
-            className="w-full bg-[#fc4d50] hover:bg-[#d93f42] text-white font-bold py-2.5 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            className="w-full text-white font-bold py-3 rounded-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed bh-btn-primary"
           >
             {loading ? <Loader2 size={18} className="animate-spin mx-auto" /> : (isLogin ? "登录" : "注册")}
           </button>
@@ -254,21 +284,25 @@ const Sidebar = ({
   onClose, 
   user, 
   sessions, 
+  sessionsLoading,
   currentSessionId, 
   onSelectSession, 
   onNewChat,
   onOpenAuth,
-  onDeleteSession
+  onDeleteSession,
+  reducedMotion
 }: { 
   isOpen: boolean; 
   onClose: () => void; 
   user: any; 
   sessions: ChatSession[]; 
+  sessionsLoading: boolean;
   currentSessionId: string | null; 
   onSelectSession: (id: string) => void | Promise<void>; 
   onNewChat: () => void;
   onOpenAuth: () => void;
   onDeleteSession: (id: string) => void;
+  reducedMotion: boolean;
 }) => {
   return (
     <>
@@ -280,11 +314,12 @@ const Sidebar = ({
         />
       )}
       
-      <div className={`fixed inset-y-0 left-0 z-40 w-80 bg-[#0c0c0e] border-r border-zinc-800 transform transition-transform duration-300 ease-in-out ${isOpen ? 'translate-x-0' : '-translate-x-full'} md:translate-x-0 md:static`}>
+      <div className={`fixed inset-y-0 left-0 z-40 w-80 transform transition-transform duration-300 ease-in-out ${isOpen ? 'translate-x-0' : '-translate-x-full'} md:translate-x-0 md:static`}>
+        <div className="h-full bh-surface-strong border-r border-white/5">
         <div className="flex flex-col h-full">
           <div className="p-4 border-b border-zinc-800 flex items-center justify-between">
             <div className="flex items-center gap-2 text-white font-bold">
-              <div className="bg-[#fc4d50] w-7 h-7 rounded-lg flex items-center justify-center text-white text-sm">B</div>
+              <div className="w-8 h-8 rounded-xl flex items-center justify-center text-white text-sm bh-btn-primary">B</div>
               <span>Booth Hunter</span>
             </div>
             <button onClick={onClose} className="md:hidden text-zinc-400">
@@ -295,26 +330,36 @@ const Sidebar = ({
           <div className="p-4">
             <button
               onClick={() => { onNewChat(); if(window.innerWidth < 768) onClose(); }}
-              className="w-full bg-zinc-800 hover:bg-zinc-700 text-white flex items-center gap-2 px-4 py-3 rounded-xl transition-colors font-medium border border-zinc-700"
+              className="w-full text-white flex items-center gap-2 px-4 py-3 rounded-2xl transition-all font-medium bh-btn-secondary"
             >
               <Plus size={18} />
               <span>新对话</span>
             </button>
           </div>
 
-          <div className="flex-grow overflow-y-auto px-4 space-y-1 scrollbar-thin scrollbar-thumb-zinc-800">
+          <div className="flex-grow overflow-y-auto px-4 space-y-1">
             <h3 className="px-4 text-[10px] font-bold text-zinc-500 uppercase tracking-[0.2em] mb-4 mt-6">历史记录</h3>
             {!user ? (
                <div className="px-4 text-sm text-zinc-500 py-4 text-center italic">
                  登录后可保存和查看历史记录
+               </div>
+            ) : sessionsLoading ? (
+               <div className="px-4 space-y-2 pb-4">
+                 {Array.from({ length: 6 }).map((_, i) => (
+                   <div key={i} className="bh-skeleton" style={{ height: 44 }} />
+                 ))}
                </div>
             ) : sessions.length === 0 ? (
                <div className="px-4 text-sm text-zinc-500 py-4 text-center italic">
                  暂无历史记录
                </div>
             ) : (
-              sessions.map((session) => (
-                <div key={session.id} className="group flex items-center gap-1 w-full">
+              sessions.map((session, i) => (
+                <div
+                  key={session.id}
+                  className={`group flex items-center gap-1 w-full ${reducedMotion ? '' : 'bh-anim-fade-left'}`}
+                  style={getStaggerStyle(i, !reducedMotion, 28, 220)}
+                >
                   <button
                     onClick={() => { onSelectSession(session.id); if(window.innerWidth < 768) onClose(); }}
                     className={`flex-grow text-left px-4 py-3 rounded-2xl text-sm flex items-center gap-3 transition-all ${
@@ -371,6 +416,7 @@ const Sidebar = ({
               </button>
             )}
           </div>
+        </div>
         </div>
       </div>
     </>
@@ -452,8 +498,8 @@ const AssetCard = React.memo(({ asset }: { asset: AssetResult }) => {
   };
 
   return (
-    <div className="group relative bg-[#18181b] border border-[#27272a] rounded-2xl overflow-hidden hover:border-[#fc4d50] transition-all duration-300 flex flex-col w-[300px] flex-shrink-0 shadow-lg hover:shadow-2xl hover:shadow-[#fc4d50]/10">
-      <div className="h-56 w-full relative overflow-hidden bg-zinc-900 border-b border-[#27272a]">
+    <div className="group relative bh-card overflow-hidden transition-all duration-300 flex flex-col w-[300px] flex-shrink-0">
+      <div className="h-56 w-full relative overflow-hidden bg-zinc-900/60 border-b border-white/5">
         {asset.imageUrl && !imgError ? (
           <img 
             src={asset.imageUrl} 
@@ -468,28 +514,28 @@ const AssetCard = React.memo(({ asset }: { asset: AssetResult }) => {
             style={{ background: getGradient(asset.title) }}
           >
             <ShoppingBag size={40} className="mb-4 text-white/40" />
-            <span className="text-sm text-zinc-300 font-medium line-clamp-3 px-4 leading-relaxed">{asset.title}</span>
+            <span className="text-sm text-zinc-300 font-medium bh-clamp-3 px-4 leading-relaxed">{asset.title}</span>
           </div>
         )}
-        <div className="absolute top-3 right-3 bg-black/70 backdrop-blur-md text-white text-sm font-bold px-2.5 py-1 rounded-md border border-white/10 shadow-sm">
+        <div className="absolute top-3 right-3 text-white text-sm font-bold px-2.5 py-1 bh-badge">
           {asset.price}
         </div>
       </div>
 
       <div className="p-5 flex flex-col flex-grow">
         <div className="flex justify-between items-start mb-3 min-h-[3rem]">
-          <h3 className="font-bold text-base text-white leading-snug line-clamp-2 group-hover:text-[#fc4d50] transition-colors">
+          <h3 className="font-bold text-base text-white leading-snug bh-clamp-2 group-hover:text-[#fc4d50] transition-colors">
             {asset.title}
           </h3>
         </div>
         
-        <p className="text-sm text-zinc-400 mb-4 line-clamp-2 flex-grow leading-relaxed">
+        <p className="text-sm text-zinc-400 mb-4 bh-clamp-2 flex-grow leading-relaxed">
           {asset.description || asset.shopName}
         </p>
 
         <div className="flex flex-wrap gap-2 mb-4 h-6 overflow-hidden">
           {asset.tags && asset.tags.slice(0, 3).map((tag, i) => (
-            <span key={i} className="text-[10px] px-2 py-0.5 bg-[#27272a] border border-zinc-800 rounded text-zinc-300">
+            <span key={i} className="text-[10px] px-2 py-0.5 bh-chip">
               {tag}
             </span>
           ))}
@@ -506,7 +552,7 @@ const AssetCard = React.memo(({ asset }: { asset: AssetResult }) => {
               href={asset.url} 
               target="_blank" 
               rel="noopener noreferrer"
-              className="flex items-center gap-1.5 text-xs font-bold text-white bg-[#fc4d50] hover:bg-[#d93f42] px-4 py-2 rounded-lg transition-colors shadow-lg shadow-red-900/20"
+              className="flex items-center gap-1.5 text-xs font-bold text-white px-4 py-2 rounded-xl bh-btn-primary"
             >
               详情
               <ExternalLink size={12} />
@@ -536,7 +582,7 @@ const ChatMessageBubble = React.memo(({ message }: { message: Message }) => {
         
         {/* Avatar & Name */}
         <div className={`flex items-center gap-3 mb-2 ${isUser ? 'flex-row-reverse' : 'flex-row'}`}>
-          <div className={`w-9 h-9 rounded-full flex items-center justify-center shadow-lg border border-white/5 ${isUser ? 'bg-zinc-700' : 'bg-[#fc4d50]'}`}>
+          <div className={`w-9 h-9 rounded-2xl flex items-center justify-center shadow-lg border border-white/5 ${isUser ? 'bg-white/10' : 'bh-avatar-accent'}`}>
             {isUser ? <User size={18} /> : <Bot size={18} />}
           </div>
           <span className="text-sm font-medium text-zinc-400">{isUser ? 'You' : 'Booth Hunter'}</span>
@@ -545,8 +591,8 @@ const ChatMessageBubble = React.memo(({ message }: { message: Message }) => {
         {/* Bubble Content with Markdown */}
         <div className={`px-6 py-4 rounded-3xl shadow-md ${
           isUser 
-            ? 'bg-zinc-800 text-zinc-100 rounded-tr-sm' 
-            : 'bg-zinc-900/90 border border-zinc-800 text-zinc-200 rounded-tl-sm'
+            ? 'text-zinc-100 rounded-tr-sm bh-bubble-user' 
+            : 'text-zinc-200 rounded-tl-sm bh-bubble-model'
         }`}>
           {message.image && (
             <img src={message.image} alt="Upload" className="max-h-64 rounded-xl mb-4 border border-zinc-700" />
@@ -566,7 +612,7 @@ const ChatMessageBubble = React.memo(({ message }: { message: Message }) => {
 
           {/* System Status Indicator */}
           {message.status && (
-            <div className="mb-4 flex items-center gap-3 py-2 px-4 bg-zinc-800/40 border border-zinc-700/50 rounded-xl animate-in fade-in slide-in-from-left-2 duration-300">
+            <div className="mb-4 flex items-center gap-3 py-2 px-4 rounded-xl bh-surface bh-anim-fade-left">
                <div className="relative">
                   <div className="w-2 h-2 bg-[#fc4d50] rounded-full animate-ping absolute inset-0"></div>
                   <div className="w-2 h-2 bg-[#fc4d50] rounded-full relative"></div>
@@ -581,7 +627,7 @@ const ChatMessageBubble = React.memo(({ message }: { message: Message }) => {
             <ReactMarkdown>
                 {displayText}
             </ReactMarkdown>
-            {message.isStreaming && <span className="inline-block w-2 h-4 ml-1 bg-[#fc4d50] animate-pulse align-middle"></span>}
+            {message.isStreaming && <span className="inline-block w-2 h-4 ml-1 bg-[#fc4d50] animate-pulse align-middle rounded-sm"></span>}
           </div>
         </div>
 
@@ -604,6 +650,30 @@ const ChatMessageBubble = React.memo(({ message }: { message: Message }) => {
   );
 });
 
+const MessageSkeletonList = ({ count = 6 }: { count?: number }) => {
+  return (
+    <div className="w-full space-y-6">
+      {Array.from({ length: count }).map((_, i) => {
+        const isUser = i % 2 === 0;
+        return (
+          <div key={i} className={`flex w-full ${isUser ? 'justify-end' : 'justify-start'}`}>
+            <div className="max-w-[95%] md:max-w-[85%] w-full">
+              <div className={`flex items-center gap-3 mb-2 ${isUser ? 'flex-row-reverse' : 'flex-row'}`}>
+                <div className="bh-skeleton" style={{ width: 36, height: 36, borderRadius: 16 }} />
+                <div className="bh-skeleton" style={{ width: 120, height: 12, borderRadius: 999 }} />
+              </div>
+              <div
+                className="bh-skeleton bh-skeleton-bubble"
+                style={{ height: 74, width: isUser ? '88%' : '92%', marginLeft: isUser ? 'auto' : undefined }}
+              />
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+};
+
 const App = () => {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
@@ -611,6 +681,10 @@ const App = () => {
   const [loading, setLoading] = useState(false);
   const [processingTool, setProcessingTool] = useState(false);
   const [imageProcessing, setImageProcessing] = useState(false);
+  const reducedMotion = usePrefersReducedMotion();
+  const [sessionsLoading, setSessionsLoading] = useState(false);
+  const [sessionMessagesLoading, setSessionMessagesLoading] = useState(false);
+  const [messageAnimationNonce, setMessageAnimationNonce] = useState(0);
   
   // Auth & Session State
   const [user, setUser] = useState<any>(null);
@@ -673,16 +747,22 @@ const App = () => {
   const fetchSessions = async (targetUser?: any) => {
     const u = targetUser ?? user;
     if (!u || !isUserEmailVerified(u)) return;
-    const { data, error } = await supabase
-      .from('chats')
-      // 仅加载列表元信息，避免首次进入就拉取所有对话 messages
-      .select('id, title, created_at')
-      .order('created_at', { ascending: false });
-    
-    if (error) {
-      console.error('Error fetching chats:', error);
-    } else {
-      setSessions((data as any[]) || []);
+
+    setSessionsLoading(true);
+    try {
+      const { data, error } = await supabase
+        .from('chats')
+        // 仅加载列表元信息，避免首次进入就拉取所有对话 messages
+        .select('id, title, created_at')
+        .order('created_at', { ascending: false });
+      
+      if (error) {
+        console.error('Error fetching chats:', error);
+      } else {
+        setSessions((data as any[]) || []);
+      }
+    } finally {
+      setSessionsLoading(false);
     }
   };
 
@@ -736,10 +816,15 @@ const App = () => {
     if (!user || !isUserEmailVerified(user)) return;
     setCurrentSessionId(id);
 
+    // Show a smooth loading state + skeleton while switching sessions
+    setSessionMessagesLoading(true);
+
     // Cache hit: don't request again
     const cached = sessionMessagesCacheRef.current[id];
     if (cached) {
       setMessages(cached);
+      setMessageAnimationNonce((n) => n + 1);
+      setSessionMessagesLoading(false);
       return;
     }
 
@@ -768,15 +853,19 @@ const App = () => {
       const msgs = await sessionMessagesInFlightRef.current[id];
       // If user switched quickly, ensure we only apply to currently selected session
       setMessages(msgs);
+      setMessageAnimationNonce((n) => n + 1);
     } catch (e: any) {
       console.error('Error fetching chat messages:', e);
       alert('加载对话失败，请稍后重试');
+    } finally {
+      setSessionMessagesLoading(false);
     }
   };
 
   const handleNewChat = () => {
     setCurrentSessionId(null);
     initChat(false);
+    setMessageAnimationNonce((n) => n + 1);
   };
 
   const handleDeleteSession = async (id: string) => {
@@ -989,31 +1078,34 @@ const App = () => {
   };
 
   return (
-    <div className="flex h-screen bg-[#09090b] text-zinc-100 font-sans selection:bg-[#fc4d50] selection:text-white overflow-hidden">
+    <div className="flex h-screen text-zinc-100 font-sans overflow-hidden">
       
       <Sidebar 
         isOpen={isSidebarOpen}
         onClose={() => setIsSidebarOpen(false)}
         user={user}
         sessions={sessions}
+        sessionsLoading={sessionsLoading}
         currentSessionId={currentSessionId}
         onSelectSession={handleSelectSession}
         onNewChat={handleNewChat}
         onOpenAuth={() => setIsAuthOpen(true)}
         onDeleteSession={handleDeleteSession}
+        reducedMotion={reducedMotion}
       />
 
       <div className="flex-1 flex flex-col h-full min-w-0">
-        <header className="flex-none px-4 py-4 border-b border-zinc-800 bg-[#09090b]/80 backdrop-blur-md z-10 flex justify-between items-center">
+        <header className="flex-none px-4 py-4 z-10 flex justify-between items-center bh-surface border-b border-white/5">
           <div className="flex items-center gap-3">
              <button 
               onClick={() => setIsSidebarOpen(true)}
-              className="md:hidden text-zinc-400 hover:text-white"
+              className="md:hidden text-zinc-300 hover:text-white bh-icon-btn p-2"
+              aria-label="打开侧边栏"
              >
                <Menu size={24} />
              </button>
              <div className="flex items-center gap-3 md:hidden">
-                <div className="bg-[#fc4d50] w-8 h-8 rounded-lg flex items-center justify-center text-white font-bold shadow-[0_0_20px_rgba(252,77,80,0.4)]">B</div>
+                <div className="w-9 h-9 rounded-2xl flex items-center justify-center text-white font-bold bh-btn-primary">B</div>
              </div>
              <div className="hidden md:block">
                 <h1 className="text-xl font-bold tracking-tight leading-none text-white">Booth Hunter</h1>
@@ -1027,17 +1119,29 @@ const App = () => {
             rel="noopener noreferrer"
             aria-label="GitHub 项目"
             title="GitHub"
-            className="p-2 rounded-xl text-zinc-400 hover:text-white hover:bg-zinc-800 transition-colors"
+            className="p-2 text-zinc-300 hover:text-white bh-icon-btn"
           >
             <Github size={20} />
           </a>
         </header>
 
-        <main className="flex-grow overflow-y-auto px-4 py-6 scrollbar-thin scrollbar-thumb-zinc-800 scrollbar-track-transparent">
+        <main className="flex-grow overflow-y-auto px-4 py-6">
           <div className="max-w-4xl mx-auto flex flex-col justify-end min-h-full pb-4">
-            {messages.map((msg) => (
-              <ChatMessageBubble key={msg.id} message={msg} />
-            ))}
+            {sessionMessagesLoading ? (
+              <div className={reducedMotion ? '' : 'bh-anim-fade-up'}>
+                <MessageSkeletonList count={6} />
+              </div>
+            ) : (
+              messages.map((msg, i) => (
+                <div
+                  key={`${msg.id}-${messageAnimationNonce}`}
+                  className={reducedMotion ? '' : 'bh-anim-fade-up'}
+                  style={getStaggerStyle(i, !reducedMotion, 28, 320)}
+                >
+                  <ChatMessageBubble message={msg} />
+                </div>
+              ))
+            )}
 
             {(loading && !messages.find(m => m.isStreaming)) && (
                <div className="flex w-full mb-6 justify-start animate-pulse">
@@ -1053,7 +1157,7 @@ const App = () => {
             )}
             
             {processingTool && (
-               <div className="flex w-full mb-6 justify-start animate-fade-in-up">
+               <div className="flex w-full mb-6 justify-start bh-anim-fade-up">
                  <div className="flex flex-col items-start max-w-[85%]">
                    <div className="flex items-center gap-2 mb-2 ml-12 text-yellow-500/80 text-xs font-mono">
                       <Hammer size={12} className="animate-bounce" />
@@ -1067,15 +1171,16 @@ const App = () => {
           </div>
         </main>
 
-        <footer className="flex-none p-4 md:p-6 bg-[#09090b] border-t border-zinc-800 z-20">
+        <footer className="flex-none p-4 md:p-6 z-20 bh-surface border-t border-white/5">
           <div className="max-w-4xl mx-auto">
             {image && (
-              <div className="mb-3 flex items-start animate-fade-in-up">
+              <div className="mb-3 flex items-start bh-anim-fade-up">
                 <div className="relative group">
                   <img src={image} alt="Ref" className="h-20 w-20 rounded-xl object-cover border border-zinc-700 shadow-xl" />
                   <button 
                     onClick={() => setImage(null)}
-                    className="absolute -top-2 -right-2 bg-black text-white rounded-full p-1.5 opacity-80 hover:opacity-100 transition-opacity border border-zinc-700"
+                    className="absolute -top-2 -right-2 text-white rounded-full p-1.5 opacity-80 hover:opacity-100 transition-opacity bh-badge"
+                    aria-label="移除图片"
                   >
                     <X size={14} />
                   </button>
@@ -1088,7 +1193,7 @@ const App = () => {
                 type="button"
                 onClick={() => fileInputRef.current?.click()}
                 disabled={imageProcessing || !canUseApp}
-                className="p-3.5 text-zinc-400 hover:text-white hover:bg-zinc-800 rounded-2xl transition-all border border-transparent hover:border-zinc-700 disabled:opacity-60 disabled:hover:bg-transparent disabled:cursor-not-allowed"
+                className="p-3.5 text-zinc-300 hover:text-white transition-all disabled:opacity-60 disabled:hover:bg-transparent disabled:cursor-not-allowed bh-icon-btn"
                 title="Upload Image"
               >
                 {imageProcessing ? <Loader2 size={22} className="animate-spin" /> : <ImageIcon size={22} />}
@@ -1108,12 +1213,13 @@ const App = () => {
                   onChange={(e) => setInput(e.target.value)}
                   disabled={!canUseApp}
                   placeholder={canUseApp ? "描述你想要的素材 (例如: 适用于巧克力的泳衣)..." : "请先登录并完成邮箱验证后继续使用"}
-                  className="w-full bg-zinc-900/80 border border-zinc-800 text-zinc-100 rounded-2xl px-5 py-4 pr-14 text-base focus:outline-none focus:border-[#fc4d50] focus:ring-1 focus:ring-[#fc4d50] transition-all placeholder-zinc-600 shadow-inner"
+                  className="w-full rounded-2xl px-5 py-4 pr-14 text-base focus:outline-none transition-all placeholder-zinc-500 bh-input"
                 />
                 <button
                   type="submit"
                   disabled={!canUseApp || loading || imageProcessing || (!input.trim() && !image)}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 p-2.5 bg-[#fc4d50] text-white rounded-xl hover:bg-[#d93f42] disabled:opacity-50 disabled:bg-zinc-700 transition-all shadow-lg hover:shadow-red-900/30"
+                  className="absolute right-2 top-1/2 -translate-y-1/2 p-2.5 text-white rounded-xl disabled:opacity-50 disabled:bg-zinc-700 transition-all bh-btn-primary"
+                  aria-label="发送"
                 >
                   <Send size={18} />
                 </button>
@@ -1187,41 +1293,7 @@ const App = () => {
 
       <Analytics />
 
-      <style>{`
-        .cursor-grabbing {
-          cursor: grabbing !important;
-        }
-        @keyframes fade-in-up {
-            from { opacity: 0; transform: translateY(10px); }
-            to { opacity: 1; transform: translateY(0); }
-        }
-        .animate-fade-in-up {
-            animation: fade-in-up 0.3s ease-out forwards;
-        }
-
-        /* 自定义全局滚动条 */
-        ::-webkit-scrollbar {
-          width: 5px;
-          height: 5px;
-        }
-        ::-webkit-scrollbar-track {
-          background: transparent;
-        }
-        ::-webkit-scrollbar-thumb {
-          background: rgba(212, 212, 216, 0.3);
-          border-radius: 10px;
-          transition: background 0.2s;
-        }
-        ::-webkit-scrollbar-thumb:hover {
-          background: rgba(212, 212, 216, 0.6);
-        }
-        
-        /* 针对 Firefox */
-        * {
-          scrollbar-width: thin;
-          scrollbar-color: rgba(212, 212, 216, 0.3) transparent;
-        }
-        `}</style>
+      {/* styles moved to index.css */}
     </div>
   );
 };
