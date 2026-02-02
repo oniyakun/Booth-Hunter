@@ -277,7 +277,7 @@ export default async function handler(req: any) {
                 model: modelName,
                 messages: [
                   ...currentMessages,
-                  { role: "user", content: "请根据以上所有搜索结果，挑选最符合要求的商品，以 Markdown 格式列出（标题、价格、推荐理由），并在最后附带 JSON 代码块。" }
+                  { role: "user", content: "请根据以上所有搜索结果，挑选最符合要求的商品。" }
                 ],
                 stream: true,
               });
