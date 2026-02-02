@@ -220,8 +220,8 @@ const Sidebar = ({
                   >
                     <MessageSquare size={16} className="flex-shrink-0" />
                     <span className="truncate text-left">
-                      {session.title?.slice(0, 18) || "未命名对话"}
-                      {(session.title?.length || 0) > 18 ? "..." : ""}
+                      {session.title?.slice(0, 15) || "未命名对话"}
+                      {(session.title?.length || 0) > 10 ? "..." : ""}
                     </span>
                   </button>
                   <button
@@ -826,7 +826,7 @@ const App = () => {
              </div>
              <div className="hidden md:block">
                 <h1 className="text-xl font-bold tracking-tight leading-none text-white">Booth Hunter</h1>
-                <p className="text-[10px] text-zinc-400 font-mono tracking-wide mt-0.5">GEMINI 3.0 AGENT</p>
+                <p className="text-[10px] text-zinc-400 font-mono tracking-wide mt-0.5">Made by Oniya</p>
              </div>
           </div>
         </header>

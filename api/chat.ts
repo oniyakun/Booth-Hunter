@@ -117,12 +117,13 @@ export default async function handler(req: any) {
         你是一个 VRChat Booth 资产导购助手。
         
         **工具使用规则**:
-        1. 当用户寻找素材时，**必须**调用 \`search_booth\` 工具。不要凭空编造商品。
+        1. 当用户寻找素材时，**必须**调用 \`search_booth\` 工具，不要凭空编造商品！
         2. 调用工具前，先将用户的中文关键词翻译成日文。
         3. 工具会返回真实的搜索结果（JSON格式）。
+        4. **多轮搜索逻辑**: 如果第一次搜索的结果中没有符合用户要求的物品，或者结果太少，请尝试更换关键词（例如：更具体的描述、同义词、或者拆分关键词）再次调用工具，直到你找到足够多（建议 4-8 个）符合条件的商品。
 
         **回复生成规则**:
-        1. 收到工具返回的结果后，请从中挑选 不少于8个最符合用户需求的商品。
+        1. 收到工具返回的结果后，请从中挑选 4-8 个最符合用户需求的商品。
         2. 用 Markdown 列表向用户简要介绍这些商品（标题、价格、推荐理由）。
         3. **关键**: 在回复的最后，必须包含一个 JSON 代码块，用于前端渲染卡片。
         
@@ -153,96 +154,132 @@ export default async function handler(req: any) {
     const encoder = new TextEncoder();
     const stream = new ReadableStream({
       async start(controller) {
+        let currentMessages = [...openAIMessages];
+        let turn = 0;
+        const maxTurns = 4; // Allow up to 3 tool call loops
+
         try {
-          console.log(`[OpenAI] Starting Turn 1 using model: ${modelName}...`);
-          const result = await openai.chat.completions.create({
-            model: modelName,
-            messages: openAIMessages,
-            tools: TOOLS,
-            stream: true,
-          });
-
-          let fullContent = "";
-          let toolCalls: any[] = [];
-
-          for await (const chunk of result) {
-            const delta = chunk.choices[0]?.delta;
-            if (delta?.content) {
-              fullContent += delta.content;
-              controller.enqueue(encoder.encode(delta.content));
-            }
-
-            if (delta?.tool_calls) {
-              for (const tc of delta.tool_calls) {
-                if (tc.id) {
-                    toolCalls[tc.index] = { ...tc, function: { name: tc.function?.name || "", arguments: tc.function?.arguments || "" } };
-                } else {
-                    toolCalls[tc.index].function.arguments += tc.function?.arguments || "";
-                }
-              }
-            }
-          }
-
-          if (toolCalls.length > 0) {
-            console.log(`[OpenAI] Processing ${toolCalls.length} tool calls...`);
-            controller.enqueue(encoder.encode("__STATUS__:正在从 Booth 抓取实时数据..."));
-            
-            const toolResults = [];
-            for (const tc of toolCalls) {
-              let args = { keyword: "" };
-              try {
-                  args = JSON.parse(tc.function.arguments);
-              } catch (e) {
-                  console.error("[OpenAI] Failed to parse arguments:", tc.function.arguments);
-              }
-              
-              const items = await executeSearchBooth(args.keyword);
-              toolResults.push({
-                tool_call_id: tc.id,
-                role: "tool",
-                name: tc.function.name,
-                content: JSON.stringify(items),
-              });
-            }
-
-            console.log("[OpenAI] Sending tool results back...");
-            const secondResponse = await openai.chat.completions.create({
+          while (turn < maxTurns) {
+            turn++;
+            console.log(`[OpenAI] Starting Loop Turn ${turn} using model: ${modelName}...`);
+            const response = await openai.chat.completions.create({
               model: modelName,
-              messages: [
-                ...openAIMessages,
-                { role: "assistant", content: fullContent || null, tool_calls: toolCalls },
-                ...toolResults,
-              ],
+              messages: currentMessages,
+              tools: TOOLS,
               stream: true,
             });
 
-            let secondTurnHasContent = false;
-            for await (const chunk of secondResponse) {
-              const content = chunk.choices[0]?.delta?.content;
-              if (content) {
-                secondTurnHasContent = true;
-                controller.enqueue(encoder.encode(content));
+            let fullContent = "";
+            let toolCalls: any[] = [];
+
+            for await (const chunk of response) {
+              const delta = chunk.choices[0]?.delta;
+              if (delta?.content) {
+                fullContent += delta.content;
+                controller.enqueue(encoder.encode(delta.content));
+              }
+
+              if (delta?.tool_calls) {
+                for (const tc of delta.tool_calls) {
+                  if (tc.id) {
+                      toolCalls[tc.index] = { ...tc, function: { name: tc.function?.name || "", arguments: tc.function?.arguments || "" } };
+                  } else {
+                      if (toolCalls[tc.index]) {
+                          toolCalls[tc.index].function.arguments += tc.function?.arguments || "";
+                      }
+                  }
+                }
               }
             }
 
-            if (!secondTurnHasContent) {
-                console.log("[OpenAI] Empty tool response, forcing summary...");
-                controller.enqueue(encoder.encode("__STATUS__:正在整理推荐列表..."));
-                const forceResponse = await openai.chat.completions.create({
-                  model: modelName,
-                  messages: [
-                    ...openAIMessages,
-                    { role: "assistant", content: fullContent || null, tool_calls: toolCalls },
-                    ...toolResults,
-                    { role: "user", content: "搜索已完成，请直接列出推荐商品并附带 JSON 块。" }
-                  ],
-                  stream: true,
-                });
-                for await (const chunk of forceResponse) {
-                  const content = chunk.choices[0]?.delta?.content;
-                  if (content) controller.enqueue(encoder.encode(content));
+            // Check if AI wants to use tools
+            if (toolCalls.length > 0) {
+              console.log(`[OpenAI] Turn ${turn} requested ${toolCalls.length} tools`);
+              controller.enqueue(encoder.encode(`__STATUS__:正在搜寻相关资产 (第${turn}轮尝试)...`));
+              
+              const toolResults = [];
+              for (const tc of toolCalls) {
+                let args = { keyword: "" };
+                try {
+                    args = JSON.parse(tc.function.arguments);
+                } catch (e) {
+                    console.error("[OpenAI] Arg parse fail:", tc.function.arguments);
                 }
+                
+                const items = await executeSearchBooth(args.keyword);
+                const simplifiedItems = items.slice(0, 5).map(item => ({
+                    title: item.title,
+                    price: item.price,
+                    shop: item.shopName,
+                    url: item.url,
+                    imageUrl: item.imageUrl
+                }));
+
+                toolResults.push({
+                  tool_call_id: tc.id,
+                  role: "tool",
+                  name: tc.function.name,
+                  content: JSON.stringify(simplifiedItems),
+                });
+              }
+
+              // Update history for next iteration
+              currentMessages.push({ role: "assistant", content: fullContent || null, tool_calls: toolCalls });
+              currentMessages.push(...toolResults);
+              
+              // If we reached maxTurns, we MUST break and let the final summary handler take over
+              if (turn >= maxTurns) {
+                  console.log("[OpenAI] Max turns reached after tool call. Proceeding to final summary.");
+                  break;
+              }
+              
+              continue; 
+            } else {
+              // No tool calls this time, breaking loop to finish.
+              break; 
             }
+          }
+
+          // FINAL SUMMARY HANDLER: 
+          // If the last turn ended with tool results but no content reply, 
+          // or if we simply need a clean exit with a summary.
+          const lastMessage = currentMessages[currentMessages.length - 1];
+          const hasToolsButNoReply = currentMessages.some(m => m.role === 'tool') && !currentMessages.some(m => m.role === 'assistant' && m.content && m.content.length > 10);
+
+          if (hasToolsButNoReply) {
+              console.log("[OpenAI] Final Phase: Generating summary from all results...");
+              controller.enqueue(encoder.encode("__STATUS__:正在为您整理最佳推荐..."));
+              
+              const forceResponse = await openai.chat.completions.create({
+                model: modelName,
+                messages: [
+                  ...currentMessages,
+                  { role: "user", content: "请根据以上所有搜索结果，挑选最符合要求的商品，以 Markdown 格式列出（标题、价格、推荐理由），并在最后附带 JSON 代码块。" }
+                ],
+                stream: true,
+              });
+
+              let finalReplyText = "";
+              for await (const chunk of forceResponse) {
+                const content = chunk.choices[0]?.delta?.content;
+                if (content) {
+                  finalReplyText += content;
+                  controller.enqueue(encoder.encode(content));
+                }
+              }
+              
+              if (!finalReplyText.trim()) {
+                  console.log("[OpenAI] Critical failure: No summary produced. Manual fallback.");
+                  controller.enqueue(encoder.encode("抱歉，我找到了搜索结果但目前无法生成文字。请查看以下卡片：\n\n"));
+                  const allItems = currentMessages
+                    .filter(m => m.role === 'tool')
+                    .map(m => JSON.parse(m.content))
+                    .flat()
+                    .slice(0, 8);
+                  
+                  const manualJson = `\n\n\`\`\`json\n${JSON.stringify(allItems)}\n\`\`\``;
+                  controller.enqueue(encoder.encode(manualJson));
+              }
           }
 
           console.log("[API] Finished.");
