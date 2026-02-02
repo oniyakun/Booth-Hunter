@@ -789,7 +789,7 @@ const App = () => {
       setMessages(prev => [...prev, {
         id: Date.now().toString(),
         role: 'model',
-        text: "网络错误或服务器繁忙，请稍后再试。",
+        text: "出错了！你可以发送“重试”来再次尝试。",
         timestamp: Date.now()
       }]);
     } finally {
