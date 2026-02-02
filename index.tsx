@@ -151,11 +151,36 @@ const usePrefersReducedMotion = () => {
   return reduced;
 };
 
+const useMediaQuery = (query: string) => {
+  const [matches, setMatches] = useState(false);
+
+  useEffect(() => {
+    const mq = window.matchMedia?.(query);
+    if (!mq) return;
+
+    const onChange = () => setMatches(!!mq.matches);
+    onChange();
+
+    // Safari / older browsers fallback
+    if (typeof (mq as any).addEventListener === 'function') {
+      (mq as any).addEventListener('change', onChange);
+      return () => (mq as any).removeEventListener('change', onChange);
+    }
+
+    (mq as any).addListener?.(onChange);
+    return () => (mq as any).removeListener?.(onChange);
+  }, [query]);
+
+  return matches;
+};
+
 const getStaggerStyle = (index: number, enabled: boolean, baseMs: number = 40, maxMs: number = 320) => {
   if (!enabled) return undefined;
   const delay = Math.min(index * baseMs, maxMs);
   return { animationDelay: `${delay}ms` } as React.CSSProperties;
 };
+
+const SIDEBAR_COLLAPSED_STORAGE_KEY = 'booth_hunter_sidebar_collapsed';
 
 // --- Components ---
 
@@ -228,7 +253,7 @@ const AuthModal = ({ isOpen, onClose, onLogin, canClose = true }: { isOpen: bool
         )}
 
         {error && (
-          <div className="mb-4 p-3 bg-red-900/20 border border-red-500/30 rounded-lg text-red-200 text-sm flex items-start gap-2">
+          <div className="mb-4 p-3 bg-[#fc4d50]/10 border border-[#fc4d50]/25 rounded-lg text-[#ffd1e1] text-sm flex items-start gap-2">
             <AlertCircle size={16} className="mt-0.5 flex-shrink-0" />
             <span>{error}</span>
           </div>
@@ -285,6 +310,7 @@ const Sidebar = ({
   user, 
   sessions, 
   sessionsLoading,
+  collapsed,
   currentSessionId, 
   onSelectSession, 
   onNewChat,
@@ -297,6 +323,7 @@ const Sidebar = ({
   user: any; 
   sessions: ChatSession[]; 
   sessionsLoading: boolean;
+  collapsed: boolean;
   currentSessionId: string | null; 
   onSelectSession: (id: string) => void | Promise<void>; 
   onNewChat: () => void;
@@ -314,13 +341,24 @@ const Sidebar = ({
         />
       )}
       
-      <div className={`fixed inset-y-0 left-0 z-40 w-80 transform transition-transform duration-300 ease-in-out ${isOpen ? 'translate-x-0' : '-translate-x-full'} md:translate-x-0 md:static`}>
+      <div
+        className={`fixed inset-y-0 left-0 z-40 transform ${
+          isOpen ? 'translate-x-0' : '-translate-x-full'
+        } transition-transform duration-300 ease-in-out md:translate-x-0 md:static ${
+          collapsed ? 'md:w-20' : 'md:w-80'
+        } md:transition-[width] md:duration-300 md:ease-in-out overflow-hidden`}
+      >
         <div className="h-full bh-surface-strong border-r border-white/5">
         <div className="flex flex-col h-full">
-          <div className="p-4 border-b border-zinc-800 flex items-center justify-between">
-            <div className="flex items-center gap-2 text-white font-bold">
-              <div className="w-8 h-8 rounded-xl flex items-center justify-center text-white text-sm bh-btn-primary">B</div>
-              <span>Booth Hunter</span>
+          <div className={`px-4 h-[72px] border-b border-white/5 flex items-center ${collapsed ? 'justify-center' : 'justify-between'}`}>
+            <div className={`flex items-center text-white font-bold ${collapsed ? 'justify-center' : 'gap-3'}`}>
+              <div className="w-9 h-9 rounded-2xl flex items-center justify-center text-white text-sm bh-btn-primary">B</div>
+              {!collapsed && (
+                <div className="flex flex-col leading-none">
+                  <span>Booth Hunter</span>
+                  <span className="text-[10px] text-zinc-400 font-mono tracking-wide mt-0.5">Made by Oniya</span>
+                </div>
+              )}
             </div>
             <button onClick={onClose} className="md:hidden text-zinc-400">
               <X size={20} />
@@ -330,21 +368,25 @@ const Sidebar = ({
           <div className="p-4">
             <button
               onClick={() => { onNewChat(); if(window.innerWidth < 768) onClose(); }}
-              className="w-full text-white flex items-center gap-2 px-4 py-3 rounded-2xl transition-all font-medium bh-btn-secondary"
+              className={`w-full text-white flex items-center ${collapsed ? 'justify-center h-11 px-0' : 'gap-2 px-4 py-3'} rounded-2xl transition-all font-medium bh-btn-secondary`}
+              aria-label="新对话"
+              title="新对话"
             >
               <Plus size={18} />
-              <span>新对话</span>
+              {!collapsed && <span>新对话</span>}
             </button>
           </div>
 
-          <div className="flex-grow overflow-y-auto px-4 space-y-1">
-            <h3 className="px-4 text-[10px] font-bold text-zinc-500 uppercase tracking-[0.2em] mb-4 mt-6">历史记录</h3>
+          <div className={`flex-grow overflow-y-auto ${collapsed ? 'px-2' : 'px-4'} space-y-1`}>
+            {!collapsed && (
+              <h3 className="px-4 text-[10px] font-bold text-zinc-500 uppercase tracking-[0.2em] mb-4 mt-6">历史记录</h3>
+            )}
             {!user ? (
                <div className="px-4 text-sm text-zinc-500 py-4 text-center italic">
                  登录后可保存和查看历史记录
                </div>
             ) : sessionsLoading ? (
-               <div className="px-4 space-y-2 pb-4">
+               <div className={`${collapsed ? 'px-0' : 'px-4'} space-y-2 pb-4`}>
                  {Array.from({ length: 6 }).map((_, i) => (
                    <div key={i} className="bh-skeleton" style={{ height: 44 }} />
                  ))}
@@ -362,25 +404,31 @@ const Sidebar = ({
                 >
                   <button
                     onClick={() => { onSelectSession(session.id); if(window.innerWidth < 768) onClose(); }}
-                    className={`flex-grow text-left px-4 py-3 rounded-2xl text-sm flex items-center gap-3 transition-all ${
+                    title={session.title || "未命名对话"}
+                    className={`flex-grow ${collapsed ? 'h-11 px-0 justify-center text-center' : 'px-4 py-3 text-left'} rounded-2xl text-sm flex items-center ${collapsed ? '' : 'gap-3'} transition-all ${
                       currentSessionId === session.id 
                         ? "bg-[#fc4d50]/10 text-[#fc4d50] border border-[#fc4d50]/20" 
                         : "text-zinc-400 hover:bg-zinc-800/50 hover:text-zinc-200"
                     }`}
                   >
                     <MessageSquare size={16} className="flex-shrink-0" />
-                    <span className="truncate text-left">
-                      {session.title?.slice(0, 15) || "未命名对话"}
-                      {(session.title?.length || 0) > 10 ? "..." : ""}
-                    </span>
+                    {!collapsed && (
+                      <span className="truncate text-left">
+                        {session.title?.slice(0, 15) || "未命名对话"}
+                        {(session.title?.length || 0) > 10 ? "..." : ""}
+                      </span>
+                    )}
                   </button>
-                  <button
-                    onClick={(e) => { e.stopPropagation(); onDeleteSession(session.id); }}
-                    className="p-2 text-zinc-600 hover:text-red-400 hover:bg-zinc-800 rounded-lg transition-colors opacity-0 group-hover:opacity-100"
-                    title="删除对话"
-                  >
-                    <Trash2 size={14} />
-                  </button>
+                  {!collapsed && (
+                    <button
+                      onClick={(e) => { e.stopPropagation(); onDeleteSession(session.id); }}
+                      className="p-2 text-zinc-600 hover:text-[#ff3d7f] hover:bg-zinc-800 rounded-lg transition-colors opacity-0 group-hover:opacity-100"
+                      title="删除对话"
+                      aria-label="删除对话"
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  )}
                 </div>
               ))
             )}
@@ -388,31 +436,41 @@ const Sidebar = ({
 
           <div className="p-4 border-t border-zinc-800">
             {user ? (
-              <div className="flex items-center justify-between">
-                 <div className="flex items-center gap-2 overflow-hidden">
-                    <div className="w-8 h-8 rounded-full bg-zinc-800 flex items-center justify-center text-zinc-400">
-                      <UserCircle size={20} />
-                    </div>
-                    <div className="flex flex-col truncate">
-                      <span className="text-sm text-white truncate font-medium">{user.email?.split('@')[0]}</span>
-                      <span className="text-[10px] text-zinc-500 truncate">{user.email}</span>
-                    </div>
-                 </div>
-                 <button 
-                  onClick={async () => { await supabase.auth.signOut(); }}
-                  className="text-zinc-500 hover:text-white p-2"
-                  title="退出登录"
-                 >
-                   <LogOut size={18} />
-                 </button>
-              </div>
+              collapsed ? (
+                <div className="flex items-center justify-center">
+                  <div className="w-11 h-11 rounded-2xl bg-white/10 flex items-center justify-center text-zinc-300">
+                    <UserCircle size={20} />
+                  </div>
+                </div>
+              ) : (
+                <div className="flex items-center justify-between">
+                   <div className="flex items-center gap-2 overflow-hidden">
+                      <div className="w-8 h-8 rounded-full bg-zinc-800 flex items-center justify-center text-zinc-400">
+                        <UserCircle size={20} />
+                      </div>
+                      <div className="flex flex-col truncate">
+                        <span className="text-sm text-white truncate font-medium">{user.email?.split('@')[0]}</span>
+                        <span className="text-[10px] text-zinc-500 truncate">{user.email}</span>
+                      </div>
+                   </div>
+                   <button 
+                    onClick={async () => { await supabase.auth.signOut(); }}
+                    className="text-zinc-500 hover:text-white p-2"
+                    title="退出登录"
+                    aria-label="退出登录"
+                   >
+                     <LogOut size={18} />
+                   </button>
+                </div>
+              )
             ) : (
               <button
                 onClick={onOpenAuth}
-                className="w-full flex items-center justify-center gap-2 text-zinc-300 hover:text-white py-2 rounded-lg hover:bg-zinc-800 transition-colors text-sm font-medium"
+                className={`w-full flex items-center justify-center ${collapsed ? '' : 'gap-2'} text-zinc-300 hover:text-white py-2 rounded-lg hover:bg-zinc-800 transition-colors text-sm font-medium`}
+                aria-label="登录 / 注册"
               >
                 <UserCircle size={18} />
-                <span>登录 / 注册</span>
+                {!collapsed && <span>登录 / 注册</span>}
               </button>
             )}
           </div>
@@ -484,21 +542,15 @@ const DraggableContainer = React.memo(({ children }: { children: React.ReactNode
   );
 });
 
-const AssetCard = React.memo(({ asset }: { asset: AssetResult }) => {
+const AssetCard = React.memo(({ asset, className, maxTags = 3 }: { asset: AssetResult; className?: string; maxTags?: number }) => {
   const [imgError, setImgError] = useState(false);
 
-  const getGradient = (str: string) => {
-    let hash = 0;
-    for (let i = 0; i < str.length; i++) {
-      hash = str.charCodeAt(i) + ((hash << 5) - hash);
-    }
-    const c1 = Math.abs(hash) % 360;
-    const c2 = (c1 + 40) % 360;
-    return `linear-gradient(135deg, hsl(${c1}, 70%, 20%), hsl(${c2}, 70%, 15%))`;
-  };
+  // Strict black + pink theme: avoid dynamic multi-color gradients.
+  const placeholderGradient =
+    "linear-gradient(135deg, rgba(252, 77, 80, 0.18), rgba(255, 61, 127, 0.10))";
 
   return (
-    <div className="group relative bh-card overflow-hidden transition-all duration-300 flex flex-col w-[300px] flex-shrink-0">
+    <div className={`group relative bh-card overflow-hidden transition-all duration-300 flex flex-col ${className ?? 'w-[300px] flex-shrink-0'}`}>
       <div className="h-56 w-full relative overflow-hidden bg-zinc-900/60 border-b border-white/5">
         {asset.imageUrl && !imgError ? (
           <img 
@@ -511,7 +563,7 @@ const AssetCard = React.memo(({ asset }: { asset: AssetResult }) => {
         ) : (
           <div 
             className="w-full h-full flex flex-col items-center justify-center p-6 text-center"
-            style={{ background: getGradient(asset.title) }}
+            style={{ background: placeholderGradient }}
           >
             <ShoppingBag size={40} className="mb-4 text-white/40" />
             <span className="text-sm text-zinc-300 font-medium bh-clamp-3 px-4 leading-relaxed">{asset.title}</span>
@@ -534,7 +586,7 @@ const AssetCard = React.memo(({ asset }: { asset: AssetResult }) => {
         </p>
 
         <div className="flex flex-wrap gap-2 mb-4 h-6 overflow-hidden">
-          {asset.tags && asset.tags.slice(0, 3).map((tag, i) => (
+          {asset.tags && asset.tags.slice(0, maxTags).map((tag, i) => (
             <span key={i} className="text-[10px] px-2 py-0.5 bh-chip">
               {tag}
             </span>
@@ -563,7 +615,7 @@ const AssetCard = React.memo(({ asset }: { asset: AssetResult }) => {
   );
 });
 
-const ChatMessageBubble = React.memo(({ message }: { message: Message }) => {
+const ChatMessageBubble = React.memo(({ message, largeLayout }: { message: Message; largeLayout: boolean }) => {
   const isUser = message.role === 'user';
   
   // Filter out JSON code blocks from display text
@@ -602,8 +654,8 @@ const ChatMessageBubble = React.memo(({ message }: { message: Message }) => {
           {message.toolCall && (
             <div className={`mb-3 flex items-center gap-2 text-xs font-mono px-3 py-1.5 rounded-lg border transition-all duration-300 ${
               message.toolCall.includes("重试") 
-                ? "text-red-400/90 bg-red-500/10 border-red-500/20 animate-pulse" 
-                : "text-yellow-500/80 bg-yellow-500/10 border-yellow-500/20"
+                ? "text-[#ff3d7f] bg-[#ff3d7f]/10 border-[#ff3d7f]/25 animate-pulse" 
+                : "text-[#fc4d50]/90 bg-[#fc4d50]/10 border-[#fc4d50]/20"
             }`}>
               <Hammer size={12} className={message.toolCall.includes("重试") ? "animate-spin" : ""} />
               <span>调用工具: {message.toolCall}</span>
@@ -634,15 +686,25 @@ const ChatMessageBubble = React.memo(({ message }: { message: Message }) => {
         {/* Asset Cards Grid */}
         {message.items && message.items.length > 0 && (
           <div className="w-full mt-6 pl-2">
-            <DraggableContainer>
-              {message.items.map((item, idx) => (
-                <AssetCard key={item.id || idx} asset={item} />
-              ))}
-            </DraggableContainer>
-            <div className="flex items-center justify-center gap-2 text-xs text-zinc-600 mt-3 opacity-60 font-medium">
-                <MoveHorizontal size={12} />
-                <span>按住卡片左右拖动查看更多</span>
-            </div>
+            {largeLayout ? (
+              <div className="grid grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-5">
+                {message.items.map((item, idx) => (
+                  <AssetCard key={item.id || idx} asset={item} className="w-full" maxTags={5} />
+                ))}
+              </div>
+            ) : (
+              <>
+                <DraggableContainer>
+                  {message.items.map((item, idx) => (
+                    <AssetCard key={item.id || idx} asset={item} />
+                  ))}
+                </DraggableContainer>
+                <div className="flex items-center justify-center gap-2 text-xs text-zinc-600 mt-3 opacity-60 font-medium">
+                  <MoveHorizontal size={12} />
+                  <span>按住卡片左右拖动查看更多</span>
+                </div>
+              </>
+            )}
           </div>
         )}
       </div>
@@ -682,9 +744,13 @@ const App = () => {
   const [processingTool, setProcessingTool] = useState(false);
   const [imageProcessing, setImageProcessing] = useState(false);
   const reducedMotion = usePrefersReducedMotion();
+  const largeLayout = useMediaQuery('(min-width: 1024px)');
   const [sessionsLoading, setSessionsLoading] = useState(false);
   const [sessionMessagesLoading, setSessionMessagesLoading] = useState(false);
   const [messageAnimationNonce, setMessageAnimationNonce] = useState(0);
+
+  // Desktop sidebar collapse state (persisted)
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   
   // Auth & Session State
   const [user, setUser] = useState<any>(null);
@@ -743,6 +809,23 @@ const App = () => {
 
     return () => subscription.unsubscribe();
   }, []);
+
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem(SIDEBAR_COLLAPSED_STORAGE_KEY);
+      if (raw === '1' || raw === 'true') setSidebarCollapsed(true);
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(SIDEBAR_COLLAPSED_STORAGE_KEY, sidebarCollapsed ? '1' : '0');
+    } catch {
+      // ignore
+    }
+  }, [sidebarCollapsed]);
 
   const fetchSessions = async (targetUser?: any) => {
     const u = targetUser ?? user;
@@ -1086,6 +1169,7 @@ const App = () => {
         user={user}
         sessions={sessions}
         sessionsLoading={sessionsLoading}
+        collapsed={sidebarCollapsed}
         currentSessionId={currentSessionId}
         onSelectSession={handleSelectSession}
         onNewChat={handleNewChat}
@@ -1095,12 +1179,16 @@ const App = () => {
       />
 
       <div className="flex-1 flex flex-col h-full min-w-0">
-        <header className="flex-none px-4 py-4 z-10 flex justify-between items-center bh-surface border-b border-white/5">
+        <header className="flex-none px-4 h-[72px] z-10 flex justify-between items-center bh-surface border-b border-white/5">
           <div className="flex items-center gap-3">
              <button 
-              onClick={() => setIsSidebarOpen(true)}
-              className="md:hidden text-zinc-300 hover:text-white bh-icon-btn p-2"
-              aria-label="打开侧边栏"
+              onClick={() => {
+                if (window.innerWidth >= 768) setSidebarCollapsed((v) => !v);
+                else setIsSidebarOpen(true);
+              }}
+              className="text-zinc-300 hover:text-white bh-icon-btn p-2"
+              aria-label={window.innerWidth >= 768 ? (sidebarCollapsed ? "展开侧边栏" : "折叠侧边栏") : "打开侧边栏"}
+              title={window.innerWidth >= 768 ? (sidebarCollapsed ? "展开侧边栏" : "折叠侧边栏") : "打开侧边栏"}
              >
                <Menu size={24} />
              </button>
@@ -1126,7 +1214,7 @@ const App = () => {
         </header>
 
         <main className="flex-grow overflow-y-auto px-4 py-6">
-          <div className="max-w-4xl mx-auto flex flex-col justify-end min-h-full pb-4">
+          <div className="max-w-4xl lg:max-w-6xl 2xl:max-w-7xl mx-auto flex flex-col justify-end min-h-full pb-4">
             {sessionMessagesLoading ? (
               <div className={reducedMotion ? '' : 'bh-anim-fade-up'}>
                 <MessageSkeletonList count={6} />
@@ -1138,7 +1226,7 @@ const App = () => {
                   className={reducedMotion ? '' : 'bh-anim-fade-up'}
                   style={getStaggerStyle(i, !reducedMotion, 28, 320)}
                 >
-                  <ChatMessageBubble message={msg} />
+                  <ChatMessageBubble message={msg} largeLayout={largeLayout} />
                 </div>
               ))
             )}
@@ -1159,7 +1247,7 @@ const App = () => {
             {processingTool && (
                <div className="flex w-full mb-6 justify-start bh-anim-fade-up">
                  <div className="flex flex-col items-start max-w-[85%]">
-                   <div className="flex items-center gap-2 mb-2 ml-12 text-yellow-500/80 text-xs font-mono">
+                   <div className="flex items-center gap-2 mb-2 ml-12 text-[#fc4d50]/80 text-xs font-mono">
                       <Hammer size={12} className="animate-bounce" />
                       <span>正在抓取 Booth 数据...</span>
                    </div>
@@ -1172,7 +1260,7 @@ const App = () => {
         </main>
 
         <footer className="flex-none p-4 md:p-6 z-20 bh-surface border-t border-white/5">
-          <div className="max-w-4xl mx-auto">
+          <div className="max-w-4xl lg:max-w-6xl 2xl:max-w-7xl mx-auto">
             {image && (
               <div className="mb-3 flex items-start bh-anim-fade-up">
                 <div className="relative group">

@@ -20,8 +20,8 @@
 
   /* Accent */
   --bh-accent: #fc4d50;
-  --bh-accent-2: #a855f7;
-  --bh-accent-3: #22c55e;
+  /* Keep the entire system strictly black + pink */
+  --bh-accent-2: #ff3d7f; /* pink highlight */
 
   /* Radius / shadows */
   --bh-r-lg: 18px;
@@ -97,7 +97,7 @@
 }
 
 .bh-btn-primary {
-  background: linear-gradient(135deg, rgba(252, 77, 80, 0.95), rgba(168, 85, 247, 0.70));
+  background: linear-gradient(135deg, rgba(252, 77, 80, 0.96), rgba(255, 61, 127, 0.78));
   border: 1px solid rgba(252, 77, 80, 0.25);
   box-shadow: 0 16px 40px rgba(252, 77, 80, 0.18);
   transition: filter 180ms ease, box-shadow 180ms ease, transform 180ms ease;
@@ -147,7 +147,7 @@
 }
 
 .bh-avatar-accent {
-  background: linear-gradient(135deg, rgba(252, 77, 80, 0.95), rgba(168, 85, 247, 0.70));
+  background: linear-gradient(135deg, rgba(252, 77, 80, 0.96), rgba(255, 61, 127, 0.78));
   box-shadow: 0 14px 38px rgba(252, 77, 80, 0.14);
 }
 
@@ -162,8 +162,8 @@ body {
     Arial, "Noto Sans", "Apple Color Emoji", "Segoe UI Emoji";
   background:
     radial-gradient(1200px 700px at 20% 10%, rgba(252, 77, 80, 0.18), transparent 55%),
-    radial-gradient(1100px 650px at 90% 25%, rgba(168, 85, 247, 0.12), transparent 58%),
-    radial-gradient(900px 550px at 50% 90%, rgba(34, 197, 94, 0.08), transparent 62%),
+    radial-gradient(1100px 650px at 90% 25%, rgba(255, 61, 127, 0.10), transparent 58%),
+    radial-gradient(900px 550px at 50% 90%, rgba(252, 77, 80, 0.08), transparent 62%),
     linear-gradient(180deg, rgba(255, 255, 255, 0.03), transparent 30%),
     var(--bh-bg);
   color: var(--bh-text);
