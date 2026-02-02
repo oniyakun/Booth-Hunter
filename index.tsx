@@ -26,6 +26,7 @@ interface Message {
   image?: string;
   timestamp: number;
   toolCall?: string; // Track if this message involved a tool call
+  status?: string;   // Current system status/progress
   isStreaming?: boolean;
 }
 
@@ -458,6 +459,18 @@ const ChatMessageBubble = React.memo(({ message }: { message: Message }) => {
             </div>
           )}
 
+          {/* System Status Indicator */}
+          {message.status && (
+            <div className="mb-4 flex items-center gap-3 py-2 px-4 bg-zinc-800/40 border border-zinc-700/50 rounded-xl animate-in fade-in slide-in-from-left-2 duration-300">
+               <div className="relative">
+                  <div className="w-2 h-2 bg-[#fc4d50] rounded-full animate-ping absolute inset-0"></div>
+                  <div className="w-2 h-2 bg-[#fc4d50] rounded-full relative"></div>
+               </div>
+               <span className="text-xs font-medium text-zinc-400 tracking-wide uppercase italic">{message.status}</span>
+               <Loader2 size={12} className="animate-spin text-zinc-600 ml-auto" />
+            </div>
+          )}
+
           {/* Markdown Rendering */}
           <div className="markdown-body text-base leading-relaxed">
             <ReactMarkdown>
@@ -714,6 +727,7 @@ const App = () => {
       const decoder = new TextDecoder();
       let accumulatedText = "";
 
+      let currentStatus = "";
       while (true) {
         const { done, value } = await reader.read();
         if (done) {
@@ -723,9 +737,29 @@ const App = () => {
         
         const chunk = decoder.decode(value, { stream: true });
         console.log(`[Stream] Received chunk: ${chunk.substring(0, 30)}...`);
+        
+        // Handle custom status prefix
+        if (chunk.includes("__STATUS__:")) {
+          const parts = chunk.split("__STATUS__:");
+          // The text before prefix belongs to accumulated text
+          if (parts[0]) accumulatedText += parts[0];
+          // The text after prefix is the new status
+          currentStatus = parts[1].split("\n")[0]; // Assume status is single line
+          
+          setMessages(prev => prev.map(m => m.id === modelMsgId ? { 
+            ...m, 
+            text: accumulatedText,
+            status: currentStatus
+          } : m));
+          continue;
+        }
+
         accumulatedText += chunk;
         setMessages(prev => prev.map(m => m.id === modelMsgId ? { ...m, text: accumulatedText } : m));
       }
+
+      // Final cleanup of status
+      setMessages(prev => prev.map(m => m.id === modelMsgId ? { ...m, status: undefined } : m));
 
       const items = extractItems(accumulatedText);
       let finalText = accumulatedText;

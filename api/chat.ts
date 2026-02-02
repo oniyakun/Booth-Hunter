@@ -122,7 +122,7 @@ export default async function handler(req: any) {
         3. 工具会返回真实的搜索结果（JSON格式）。
 
         **回复生成规则**:
-        1. 收到工具返回的结果后，请从中挑选 4-8 个最符合用户需求的商品。
+        1. 收到工具返回的结果后，请从中挑选 不少于8个最符合用户需求的商品。
         2. 用 Markdown 列表向用户简要介绍这些商品（标题、价格、推荐理由）。
         3. **关键**: 在回复的最后，必须包含一个 JSON 代码块，用于前端渲染卡片。
         
@@ -185,7 +185,7 @@ export default async function handler(req: any) {
 
           if (toolCalls.length > 0) {
             console.log(`[OpenAI] Processing ${toolCalls.length} tool calls...`);
-            controller.enqueue(encoder.encode("\n\n*(正在抓取商品信息...)*\n\n"));
+            controller.enqueue(encoder.encode("__STATUS__:正在从 Booth 抓取实时数据..."));
             
             const toolResults = [];
             for (const tc of toolCalls) {
@@ -227,7 +227,7 @@ export default async function handler(req: any) {
 
             if (!secondTurnHasContent) {
                 console.log("[OpenAI] Empty tool response, forcing summary...");
-                controller.enqueue(encoder.encode("\n\n*(正在整理推荐列表...)*\n\n"));
+                controller.enqueue(encoder.encode("__STATUS__:正在整理推荐列表..."));
                 const forceResponse = await openai.chat.completions.create({
                   model: modelName,
                   messages: [
