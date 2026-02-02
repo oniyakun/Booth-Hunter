@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from "react";
 import { createRoot } from "react-dom/client";
-import { Search, Image as ImageIcon, Upload, ExternalLink, Loader2, Sparkles, ShoppingBag, X, AlertCircle, Terminal, ChevronDown, ChevronUp, Send, Bot, User, MoveHorizontal, Hammer, LogOut, History, Plus, Menu, UserCircle, Layout, MessageSquare, Trash2, Github } from "lucide-react";
+import { Search, Image as ImageIcon, Upload, ExternalLink, Loader2, Sparkles, ShoppingBag, X, AlertCircle, Terminal, ChevronDown, ChevronUp, Send, Bot, User, MoveHorizontal, Hammer, LogOut, History, Plus, Menu, UserCircle, Layout, MessageSquare, Trash2, Github, Shield, Users } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import { supabase } from "./supabaseClient";
 import { Analytics } from "@vercel/analytics/react";
@@ -126,6 +126,530 @@ interface ChatSession {
   title: string;
   created_at: string;
 }
+
+interface Profile {
+  id: string;
+  email?: string;
+  is_admin?: boolean;
+  created_at?: string;
+}
+
+interface AdminChatMeta {
+  id: string;
+  user_id: string;
+  title: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+type AdminChatDetail = AdminChatMeta & { messages: Message[] | null };
+
+async function getSupabaseAccessToken(): Promise<string | null> {
+  const { data } = await supabase.auth.getSession();
+  return data.session?.access_token ?? null;
+}
+
+async function adminFetchJson<T>(path: string): Promise<T> {
+  const token = await getSupabaseAccessToken();
+  if (!token) throw new Error('Not authenticated');
+
+  const res = await fetch(path, {
+    method: 'GET',
+    headers: {
+      'content-type': 'application/json',
+      authorization: `Bearer ${token}`,
+    },
+  });
+
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error((data as any)?.error || `Request failed: ${res.status}`);
+  }
+  return data as T;
+}
+
+const AdminPanel = ({ onClose }: { onClose: () => void }) => {
+  const [users, setUsers] = useState<Profile[]>([]);
+  const [usersLoading, setUsersLoading] = useState(false);
+  const [userDeletingId, setUserDeletingId] = useState<string | null>(null);
+  const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
+  const [chats, setChats] = useState<AdminChatMeta[]>([]);
+  const [chatsLoading, setChatsLoading] = useState(false);
+  const [chatDeletingId, setChatDeletingId] = useState<string | null>(null);
+  const [selectedChatId, setSelectedChatId] = useState<string | null>(null);
+  const [chatDetail, setChatDetail] = useState<AdminChatDetail | null>(null);
+  const [chatLoading, setChatLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [userQuery, setUserQuery] = useState('');
+
+  // Admin 详情里需要把历史消息中可能包含的商品卡片渲染出来。
+  // - 新版本 messages 里通常会带 items 字段。
+  // - 老版本可能把 items 以 ```json [...]``` 的形式嵌在 text 里。
+  const extractItemsFromText = (text: string): { cleanText: string; items?: AssetResult[] } => {
+    const jsonBlockRegex = /```json\s*(\[[\s\S]*?\])\s*```/i;
+    const match = text.match(jsonBlockRegex);
+    if (!match) return { cleanText: text };
+
+    try {
+      const parsed = JSON.parse(match[1]);
+      const items = Array.isArray(parsed) ? (parsed as AssetResult[]) : undefined;
+      const cleanText = text.replace(jsonBlockRegex, '').trim();
+      return { cleanText, items };
+    } catch {
+      return { cleanText: text };
+    }
+  };
+
+  const AdminAssetCard = ({ asset }: { asset: AssetResult }) => {
+    const [imgError, setImgError] = useState(false);
+    const placeholderGradient =
+      'linear-gradient(135deg, rgba(252, 77, 80, 0.18), rgba(255, 61, 127, 0.10))';
+
+    return (
+      <div className="group relative bh-card overflow-hidden transition-all duration-300 flex flex-col">
+        <div className="h-44 w-full relative overflow-hidden bg-zinc-900/60 border-b border-white/5">
+          {asset.imageUrl && !imgError ? (
+            <img
+              src={asset.imageUrl}
+              alt={asset.title}
+              className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+              onError={() => setImgError(true)}
+              loading="lazy"
+            />
+          ) : (
+            <div
+              className="w-full h-full flex flex-col items-center justify-center p-6 text-center"
+              style={{ background: placeholderGradient }}
+            >
+              <ShoppingBag size={34} className="mb-3 text-white/40" />
+              <span className="text-xs text-zinc-300 font-medium bh-clamp-3 px-2 leading-relaxed">{asset.title}</span>
+            </div>
+          )}
+
+          {asset.price && (
+            <div className="absolute top-3 right-3 text-white text-xs font-bold px-2.5 py-1 bh-badge">
+              {asset.price}
+            </div>
+          )}
+        </div>
+
+        <div className="p-4 flex flex-col flex-grow">
+          <h3 className="font-bold text-sm text-white leading-snug bh-clamp-2 group-hover:text-[#fc4d50] transition-colors">
+            {asset.title}
+          </h3>
+
+          <p className="text-xs text-zinc-400 mt-2 bh-clamp-2 flex-grow leading-relaxed">
+            {asset.description || asset.shopName}
+          </p>
+
+          <div className="mt-3 flex flex-wrap gap-2">
+            {(asset.tags || []).slice(0, 4).map((tag, i) => (
+              <span key={i} className="text-[10px] px-2 py-0.5 bh-chip">
+                {tag}
+              </span>
+            ))}
+          </div>
+
+          <div className="mt-4 pt-3 border-t border-[#27272a] flex justify-between items-center">
+            <span className="text-[11px] text-zinc-500 truncate max-w-[60%]">{asset.shopName}</span>
+            <a
+              href={asset.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-1.5 text-xs font-bold text-white px-3 py-2 rounded-xl bh-btn-primary"
+            >
+              详情
+              <ExternalLink size={12} />
+            </a>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  const AdminMessageCard = ({ m, idx }: { m: Message; idx: number }) => {
+    const isUser = m.role === 'user';
+
+    // items 优先使用消息对象自带的；否则尝试从 text 的 ```json``` 里解析。
+    const { cleanText, items: itemsFromText } = extractItemsFromText(m.text || '');
+    const items = (m.items && m.items.length ? m.items : itemsFromText) || [];
+
+    return (
+      <div key={m.id || idx} className="bh-card p-4">
+        <div className="flex items-center justify-between mb-2">
+          <div className={`text-xs font-mono ${isUser ? 'text-[#ff3d7f]' : 'text-[#fc4d50]'}`}>
+            {m.role}
+          </div>
+          <div className="text-[10px] text-zinc-500">{m.timestamp ? new Date(m.timestamp).toLocaleString() : ''}</div>
+        </div>
+
+        {m.image && (
+          <img src={m.image} alt="Upload" className="max-h-64 rounded-xl mb-3 border border-zinc-700" />
+        )}
+
+        <div className="text-sm text-zinc-200 whitespace-pre-wrap break-words">
+          <ReactMarkdown>{cleanText || ''}</ReactMarkdown>
+        </div>
+
+        {items.length > 0 && (
+          <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
+            {items.map((asset, i) => (
+              <AdminAssetCard key={(asset as any)?.id || i} asset={asset} />
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  const loadUsers = async () => {
+    setUsersLoading(true);
+    setError(null);
+    try {
+      const res = await adminFetchJson<{ data: Profile[] }>('/api/admin/users');
+      setUsers(res.data || []);
+    } catch (e: any) {
+      setError(e?.message || '加载用户失败');
+    } finally {
+      setUsersLoading(false);
+    }
+  };
+
+  const deleteUser = async (userId: string) => {
+    if (!userId) return;
+    if (!window.confirm('确定要删除该用户吗？\n\n这会同时删除：\n- auth.users\n- profiles\n- 该用户所有 chats\n\n此操作不可恢复。')) return;
+
+    setUserDeletingId(userId);
+    setError(null);
+    try {
+      const token = await getSupabaseAccessToken();
+      if (!token) throw new Error('Not authenticated');
+
+      const res = await fetch(`/api/admin/users?id=${encodeURIComponent(userId)}`, {
+        method: 'DELETE',
+        headers: {
+          authorization: `Bearer ${token}`,
+        },
+      });
+
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error((data as any)?.error || `Request failed: ${res.status}`);
+
+      // 如果当前正在查看该用户，清空右侧选中状态
+      if (selectedUserId === userId) {
+        setSelectedUserId(null);
+        setSelectedChatId(null);
+        setChatDetail(null);
+        setChats([]);
+      }
+      await loadUsers();
+    } catch (e: any) {
+      setError(e?.message || '删除用户失败');
+    } finally {
+      setUserDeletingId(null);
+    }
+  };
+
+  const loadChats = async (userId?: string | null) => {
+    setChatsLoading(true);
+    setError(null);
+    setSelectedChatId(null);
+    setChatDetail(null);
+    try {
+      const qs = userId ? `?user_id=${encodeURIComponent(userId)}` : '';
+      const res = await adminFetchJson<{ data: AdminChatMeta[] }>(`/api/admin/chats${qs}`);
+      setChats(res.data || []);
+    } catch (e: any) {
+      setError(e?.message || '加载对话列表失败');
+    } finally {
+      setChatsLoading(false);
+    }
+  };
+
+  const deleteChat = async (chatId: string) => {
+    if (!chatId) return;
+    if (!window.confirm('确定要删除这条对话吗？\n\n此操作不可恢复。')) return;
+
+    setChatDeletingId(chatId);
+    setError(null);
+    try {
+      const token = await getSupabaseAccessToken();
+      if (!token) throw new Error('Not authenticated');
+
+      const res = await fetch(`/api/admin/chats?id=${encodeURIComponent(chatId)}`, {
+        method: 'DELETE',
+        headers: {
+          authorization: `Bearer ${token}`,
+        },
+      });
+
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error((data as any)?.error || `Request failed: ${res.status}`);
+
+      // 如果正在查看该对话，清空右侧详情
+      if (selectedChatId === chatId) {
+        setSelectedChatId(null);
+        setChatDetail(null);
+      }
+
+      // 从列表里移除（避免一次全量刷新），并保持 UI 响应快
+      setChats((prev) => prev.filter((c) => c.id !== chatId));
+    } catch (e: any) {
+      setError(e?.message || '删除对话失败');
+    } finally {
+      setChatDeletingId(null);
+    }
+  };
+
+  const loadChatDetail = async (chatId: string) => {
+    setChatLoading(true);
+    setError(null);
+    try {
+      const res = await adminFetchJson<{ data: AdminChatDetail | null }>(
+        `/api/admin/chats?id=${encodeURIComponent(chatId)}`
+      );
+      setChatDetail(res.data);
+    } catch (e: any) {
+      setError(e?.message || '加载对话详情失败');
+    } finally {
+      setChatLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    // 默认只加载用户列表；避免管理员打开面板时立刻拉取“全站所有对话”。
+    // 需要查看对话时，让管理员主动点击“全部对话”或选择某个用户。
+    loadUsers();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const filteredUsers = users.filter((u) => {
+    if (!userQuery.trim()) return true;
+    const q = userQuery.trim().toLowerCase();
+    return (u.email || '').toLowerCase().includes(q) || u.id.toLowerCase().includes(q);
+  });
+
+  return (
+    <div className="fixed inset-0 z-[80] bg-black/70 backdrop-blur-md">
+      <div className="absolute inset-3 md:inset-6 bh-surface-strong rounded-3xl border border-white/10 overflow-hidden shadow-2xl">
+        <div className="h-[72px] px-4 border-b border-white/5 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-2xl flex items-center justify-center bh-btn-primary">
+              <Shield size={18} />
+            </div>
+            <div className="flex flex-col leading-none">
+              <span className="text-white font-bold">管理员面板</span>
+              <span className="text-[10px] text-zinc-400 font-mono tracking-wide mt-0.5">Admin Console</span>
+            </div>
+          </div>
+
+          <button onClick={onClose} className="bh-icon-btn p-2 text-zinc-300 hover:text-white" aria-label="关闭管理员面板">
+            <X size={20} />
+          </button>
+        </div>
+
+        <div className="h-[calc(100%-72px)] grid grid-cols-1 lg:grid-cols-[320px_1fr]">
+          {/* Left: Users */}
+          <aside className="border-b lg:border-b-0 lg:border-r border-white/5 overflow-hidden flex flex-col">
+            <div className="p-4 border-b border-white/5">
+              <div className="flex items-center gap-2 text-white font-bold mb-3">
+                <Users size={16} className="text-[#ff3d7f]" />
+                <span>用户列表</span>
+              </div>
+              <input
+                value={userQuery}
+                onChange={(e) => setUserQuery(e.target.value)}
+                placeholder="搜索 email / user_id"
+                className="w-full rounded-xl px-4 py-2.5 text-white focus:outline-none bh-input"
+              />
+              <div className="mt-3 flex gap-2">
+                <button
+                  onClick={() => loadChats(null)}
+                  className="flex-1 py-2 rounded-xl text-sm font-medium bh-btn-secondary text-white"
+                >
+                  全部对话
+                </button>
+                <button
+                  onClick={loadUsers}
+                  className="py-2 px-3 rounded-xl text-sm font-medium bh-btn-secondary text-white"
+                  title="刷新用户"
+                >
+                  刷新
+                </button>
+              </div>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-3 space-y-2">
+              {usersLoading ? (
+                Array.from({ length: 8 }).map((_, i) => <div key={i} className="bh-skeleton" style={{ height: 54 }} />)
+              ) : filteredUsers.length === 0 ? (
+                <div className="text-sm text-zinc-500 text-center py-10">暂无用户</div>
+              ) : (
+                filteredUsers.map((u) => (
+                  <div
+                    key={u.id}
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => {
+                      setSelectedUserId(u.id);
+                      loadChats(u.id);
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        setSelectedUserId(u.id);
+                        loadChats(u.id);
+                      }
+                    }}
+                    className={`w-full text-left p-3 rounded-2xl border transition-all cursor-pointer outline-none focus:ring-2 focus:ring-[#fc4d50]/30 ${
+                      selectedUserId === u.id
+                        ? 'border-[#fc4d50]/25 bg-[#fc4d50]/10'
+                        : 'border-white/5 hover:border-white/10 hover:bg-white/5'
+                    }`}
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0 flex-1">
+                        <div className="text-sm text-white font-medium truncate">{u.email || u.id}</div>
+                        <div className="text-[10px] text-zinc-500 font-mono truncate mt-1">{u.id}</div>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          deleteUser(u.id);
+                        }}
+                        disabled={!!userDeletingId}
+                        className="p-2 rounded-xl bh-btn-secondary text-zinc-200 hover:text-white disabled:opacity-50"
+                        title="删除用户"
+                        aria-label="删除用户"
+                      >
+                        {userDeletingId === u.id ? <Loader2 size={16} className="animate-spin" /> : <Trash2 size={16} />}
+                      </button>
+                    </div>
+                    {u.is_admin && (
+                      <div className="mt-2 inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-lg bg-[#ff3d7f]/10 border border-[#ff3d7f]/20 text-[#ff3d7f]">
+                        <Shield size={12} />
+                        管理员
+                      </div>
+                    )}
+                  </div>
+                ))
+              )}
+            </div>
+          </aside>
+
+          {/* Right: Chats + Detail */}
+          <section className="overflow-hidden flex flex-col">
+            <div className="p-4 border-b border-white/5 flex items-center justify-between">
+              <div className="text-white font-bold">对话列表</div>
+              <button
+                onClick={() => loadChats(selectedUserId)}
+                className="py-2 px-3 rounded-xl text-sm font-medium bh-btn-secondary text-white"
+              >
+                刷新
+              </button>
+            </div>
+
+            {error && (
+              <div className="p-4">
+                <div className="p-3 bg-[#ff3d7f]/10 border border-[#ff3d7f]/25 rounded-xl text-[#ffd1e1] text-sm">
+                  {error}
+                </div>
+              </div>
+            )}
+
+            <div className="flex-1 overflow-hidden grid grid-cols-1 xl:grid-cols-[420px_1fr]">
+              {/* Chat list */}
+              <div className="border-b xl:border-b-0 xl:border-r border-white/5 overflow-y-auto p-3 space-y-2">
+                {chatsLoading ? (
+                  Array.from({ length: 10 }).map((_, i) => <div key={i} className="bh-skeleton" style={{ height: 64 }} />)
+                ) : chats.length === 0 ? (
+                  <div className="text-sm text-zinc-500 text-center py-10">暂无对话</div>
+                ) : (
+                  chats.map((c) => (
+                    <div
+                      key={c.id}
+                      role="button"
+                      tabIndex={0}
+                      onClick={() => {
+                        setSelectedChatId(c.id);
+                        loadChatDetail(c.id);
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault();
+                          setSelectedChatId(c.id);
+                          loadChatDetail(c.id);
+                        }
+                      }}
+                      className={`w-full text-left p-3 rounded-2xl border transition-all cursor-pointer outline-none focus:ring-2 focus:ring-[#fc4d50]/30 ${
+                        selectedChatId === c.id
+                          ? 'border-[#fc4d50]/25 bg-[#fc4d50]/10'
+                          : 'border-white/5 hover:border-white/10 hover:bg-white/5'
+                      }`}
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="text-sm text-white font-medium truncate min-w-0 flex-1">
+                          {c.title || '未命名对话'}
+                        </div>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            deleteChat(c.id);
+                          }}
+                          disabled={!!chatDeletingId}
+                          className="p-2 rounded-xl bh-btn-secondary text-zinc-200 hover:text-white disabled:opacity-50"
+                          title="删除对话"
+                          aria-label="删除对话"
+                        >
+                          {chatDeletingId === c.id ? <Loader2 size={16} className="animate-spin" /> : <Trash2 size={16} />}
+                        </button>
+                      </div>
+                      <div className="text-[10px] text-zinc-500 font-mono truncate mt-1">chat: {c.id}</div>
+                      <div className="text-[10px] text-zinc-500 font-mono truncate mt-1">user: {c.user_id}</div>
+                      <div className="text-[10px] text-zinc-600 mt-1">{new Date(c.created_at).toLocaleString()}</div>
+                    </div>
+                  ))
+                )}
+              </div>
+
+              {/* Chat detail */}
+              <div className="overflow-y-auto p-4">
+                {!selectedChatId ? (
+                  <div className="text-zinc-500 text-sm text-center py-16">选择一条对话查看内容</div>
+                ) : chatLoading ? (
+                  <div className="space-y-3">
+                    <div className="bh-skeleton" style={{ height: 18, width: '60%' }} />
+                    <div className="bh-skeleton" style={{ height: 120 }} />
+                    <div className="bh-skeleton" style={{ height: 120 }} />
+                  </div>
+                ) : !chatDetail ? (
+                  <div className="text-zinc-500 text-sm text-center py-16">未找到对话</div>
+                ) : (
+                  <div>
+                    <div className="mb-4">
+                      <div className="text-white font-bold text-lg truncate">{chatDetail.title || '未命名对话'}</div>
+                      <div className="text-[11px] text-zinc-500 font-mono mt-1">chat: {chatDetail.id}</div>
+                      <div className="text-[11px] text-zinc-500 font-mono mt-1">user: {chatDetail.user_id}</div>
+                    </div>
+
+                    <div className="space-y-4">
+                      {(chatDetail.messages || []).map((m, idx) => (
+                        <AdminMessageCard key={m.id || idx} m={m} idx={idx} />
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          </section>
+        </div>
+      </div>
+    </div>
+  );
+};
 
 // --- Animation helpers ---
 const usePrefersReducedMotion = () => {
@@ -356,7 +880,6 @@ const Sidebar = ({
               {!collapsed && (
                 <div className="flex flex-col leading-none">
                   <span>Booth Hunter</span>
-                  <span className="text-[10px] text-zinc-400 font-mono tracking-wide mt-0.5">Made by Oniya</span>
                 </div>
               )}
             </div>
@@ -759,6 +1282,8 @@ const App = () => {
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isAuthOpen, setIsAuthOpen] = useState(false);
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [isAdminPanelOpen, setIsAdminPanelOpen] = useState(false);
 
   const emailVerified = !!(user && isUserEmailVerified(user));
   const canUseApp = !!user && emailVerified;
@@ -823,6 +1348,41 @@ const App = () => {
   }, []);
 
   useEffect(() => {
+    // Determine admin role from profiles.is_admin (if the table/policies exist).
+    // Fail-closed: any error => not admin.
+    let cancelled = false;
+
+    const run = async () => {
+      try {
+        if (!user || !isUserEmailVerified(user)) {
+          if (!cancelled) setIsAdmin(false);
+          return;
+        }
+
+        const { data, error } = await supabase
+          .from('profiles')
+          .select('is_admin')
+          .eq('id', user.id)
+          .maybeSingle();
+
+        if (cancelled) return;
+        if (error) {
+          setIsAdmin(false);
+          return;
+        }
+        setIsAdmin(!!(data as any)?.is_admin);
+      } catch {
+        if (!cancelled) setIsAdmin(false);
+      }
+    };
+
+    run();
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.id, user?.email_confirmed_at, user?.confirmed_at]);
+
+  useEffect(() => {
     try {
       const raw = window.localStorage.getItem(SIDEBAR_COLLAPSED_STORAGE_KEY);
       if (raw === '1' || raw === 'true') setSidebarCollapsed(true);
@@ -849,6 +1409,8 @@ const App = () => {
         .from('chats')
         // 仅加载列表元信息，避免首次进入就拉取所有对话 messages
         .select('id, title, created_at')
+        // 关键：无论是否管理员账号，常规侧边栏历史记录都只显示自己的对话
+        .eq('user_id', u.id)
         .order('created_at', { ascending: false });
       
       if (error) {
@@ -874,7 +1436,9 @@ const App = () => {
         await supabase
           .from('chats')
           .update({ messages: newMessages, updated_at: new Date().toISOString() })
-          .eq('id', currentSessionId);
+          .eq('id', currentSessionId)
+          // 防御性过滤：确保只更新自己的会话
+          .eq('user_id', user.id);
         
         // Update local list (metadata only)
         setSessions(prev => prev.map(s => s.id === currentSessionId ? { ...s, title } : s));
@@ -930,6 +1494,8 @@ const App = () => {
           .from('chats')
           .select('messages')
           .eq('id', id)
+          // 防御性过滤：常规读取只允许读取自己的会话
+          .eq('user_id', user.id)
           .single();
 
         if (error) {
@@ -971,7 +1537,9 @@ const App = () => {
       const { error } = await supabase
         .from('chats')
         .delete()
-        .eq('id', id);
+        .eq('id', id)
+        // 防御性过滤：只允许删除自己的会话
+        .eq('user_id', user.id);
 
       if (error) throw error;
 
@@ -1229,16 +1797,29 @@ const App = () => {
              </div>
           </div>
 
-          <a
-            href="https://github.com/oniyakun/Booth-Hunter"
-            target="_blank"
-            rel="noopener noreferrer"
-            aria-label="GitHub 项目"
-            title="GitHub"
-            className="p-2 text-zinc-300 hover:text-white bh-icon-btn"
-          >
-            <Github size={20} />
-          </a>
+          <div className="flex items-center gap-2">
+            {isAdmin && (
+              <button
+                onClick={() => setIsAdminPanelOpen(true)}
+                className="p-2 text-zinc-300 hover:text-white bh-icon-btn"
+                aria-label="打开管理员面板"
+                title="管理员面板"
+              >
+                <Shield size={20} />
+              </button>
+            )}
+
+            <a
+              href="https://github.com/oniyakun/Booth-Hunter"
+              target="_blank"
+              rel="noopener noreferrer"
+              aria-label="GitHub 项目"
+              title="GitHub"
+              className="p-2 text-zinc-300 hover:text-white bh-icon-btn"
+            >
+              <Github size={20} />
+            </a>
+          </div>
         </header>
 
         <main
@@ -1415,6 +1996,10 @@ const App = () => {
       )}
 
       <Analytics />
+
+      {isAdmin && isAdminPanelOpen && (
+        <AdminPanel onClose={() => setIsAdminPanelOpen(false)} />
+      )}
 
       {/* styles moved to index.css */}
     </div>
