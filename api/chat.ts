@@ -182,6 +182,7 @@ export default async function handler(req: any) {
         let currentMessages = [...openAIMessages];
         let turn = 0;
         const maxTurns = 4; 
+        let lastTurnProducedText = false;
 
         try {
           while (turn < maxTurns) {
@@ -194,13 +195,13 @@ export default async function handler(req: any) {
               stream: true,
             });
 
-            let fullContent = "";
+            let currentTurnText = "";
             let toolCalls: any[] = [];
 
             for await (const chunk of response) {
               const delta = chunk.choices[0]?.delta;
               if (delta?.content) {
-                fullContent += delta.content;
+                currentTurnText += delta.content;
                 controller.enqueue(encoder.encode(delta.content));
               }
 
@@ -220,6 +221,8 @@ export default async function handler(req: any) {
                 }
               }
             }
+
+            lastTurnProducedText = currentTurnText.trim().length > 0;
 
             if (toolCalls.length > 0) {
               console.log(`[OpenAI] Turn ${turn} requested ${toolCalls.length} tools`);
@@ -251,7 +254,7 @@ export default async function handler(req: any) {
                 });
               }
 
-              currentMessages.push({ role: "assistant", content: fullContent || null, tool_calls: toolCalls });
+              currentMessages.push({ role: "assistant", content: currentTurnText || null, tool_calls: toolCalls });
               currentMessages.push(...toolResults);
               
               if (turn >= maxTurns) {
@@ -264,9 +267,10 @@ export default async function handler(req: any) {
             }
           }
 
-          const lastMsgInHistory = currentMessages[currentMessages.length - 1];
-          if (lastMsgInHistory && lastMsgInHistory.role === 'tool') {
-              console.log("[OpenAI] Final Phase: Generating summary...");
+          // FINAL SUMMARY HANDLER: Only run if AI ended with tool results but without generating text summary
+          const hasUsedTools = currentMessages.some(m => m.role === 'tool');
+          if (hasUsedTools && !lastTurnProducedText) {
+              console.log("[OpenAI] Final Phase: Generating summary as AI remained silent...");
               controller.enqueue(encoder.encode("__STATUS__:正在为您整理最佳推荐..."));
               
               const forceResponse = await openai.chat.completions.create({
