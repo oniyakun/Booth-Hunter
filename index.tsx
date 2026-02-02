@@ -1,9 +1,95 @@
 import React, { useState, useRef, useEffect } from "react";
 import { createRoot } from "react-dom/client";
-import { Search, Image as ImageIcon, Upload, ExternalLink, Loader2, Sparkles, ShoppingBag, X, AlertCircle, Terminal, ChevronDown, ChevronUp, Send, Bot, User, MoveHorizontal, Hammer, LogOut, History, Plus, Menu, UserCircle, Layout, MessageSquare, Trash2 } from "lucide-react";
+import { Search, Image as ImageIcon, Upload, ExternalLink, Loader2, Sparkles, ShoppingBag, X, AlertCircle, Terminal, ChevronDown, ChevronUp, Send, Bot, User, MoveHorizontal, Hammer, LogOut, History, Plus, Menu, UserCircle, Layout, MessageSquare, Trash2, Github } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import { supabase } from "./supabaseClient";
 import { Analytics } from "@vercel/analytics/react";
+
+// --- Image Utils ---
+
+async function blobToDataUrl(blob: Blob): Promise<string> {
+  return await new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(reader.error);
+    reader.onload = () => resolve(reader.result as string);
+    reader.readAsDataURL(blob);
+  });
+}
+
+/**
+ * 将用户上传的图片：
+ * 1) 等比缩放到 1080x1080 以内（不放大，小图保持原尺寸）
+ * 2) 统一压缩为 JPG（quality=0.8）
+ * 用于减少发送给后端/模型的体积。
+ * 注意：PNG 的透明通道会被白底替换；动图（GIF）会只保留第一帧。
+ */
+async function compressImageFileToJpegDataUrl(
+  file: File,
+  quality: number = 0.8,
+  maxSize: number = 1080
+): Promise<string> {
+  // Some formats (e.g. SVG) are not safe to draw to canvas across browsers
+  if (!file.type.startsWith("image/")) {
+    throw new Error("Not an image file");
+  }
+
+  // Prefer createImageBitmap for performance; fallback to <img>
+  let bitmap: ImageBitmap | null = null;
+  let imgEl: HTMLImageElement | null = null;
+  let objectUrl: string | null = null;
+
+  try {
+    if (typeof createImageBitmap === "function") {
+      bitmap = await createImageBitmap(file);
+    } else {
+      objectUrl = URL.createObjectURL(file);
+      imgEl = await new Promise<HTMLImageElement>((resolve, reject) => {
+        const el = new Image();
+        el.onload = () => resolve(el);
+        el.onerror = () => reject(new Error("Image load failed"));
+        el.src = objectUrl!;
+      });
+    }
+
+    const srcWidth = bitmap ? bitmap.width : (imgEl?.naturalWidth || imgEl?.width || 0);
+    const srcHeight = bitmap ? bitmap.height : (imgEl?.naturalHeight || imgEl?.height || 0);
+    if (!srcWidth || !srcHeight) throw new Error("Invalid image size");
+
+    const scale = Math.min(1, maxSize / Math.max(srcWidth, srcHeight));
+    const width = Math.max(1, Math.round(srcWidth * scale));
+    const height = Math.max(1, Math.round(srcHeight * scale));
+
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) throw new Error("Canvas 2D context not available");
+
+    // Avoid black background when converting from PNG with alpha
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(0, 0, width, height);
+    if (bitmap) ctx.drawImage(bitmap, 0, 0, width, height);
+    else if (imgEl) ctx.drawImage(imgEl, 0, 0, width, height);
+    else throw new Error("No image source available");
+
+    const blob = await new Promise<Blob>((resolve, reject) => {
+      canvas.toBlob(
+        (b) => (b ? resolve(b) : reject(new Error("canvas.toBlob returned null"))),
+        "image/jpeg",
+        quality
+      );
+    });
+
+    return await blobToDataUrl(blob);
+  } finally {
+    try {
+      bitmap?.close();
+    } catch {
+      // ignore
+    }
+    if (objectUrl) URL.revokeObjectURL(objectUrl);
+  }
+}
 
 // --- Types ---
 
@@ -505,6 +591,7 @@ const App = () => {
   const [image, setImage] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [processingTool, setProcessingTool] = useState(false);
+  const [imageProcessing, setImageProcessing] = useState(false);
   
   // Auth & Session State
   const [user, setUser] = useState<any>(null);
@@ -658,14 +745,28 @@ const App = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, loading, processingTool]);
 
-  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setImage(reader.result as string);
-      };
-      reader.readAsDataURL(file);
+    // reset input value so selecting the same file again triggers onChange
+    e.target.value = "";
+
+    if (!file) return;
+
+    setImageProcessing(true);
+    try {
+      const compressedDataUrl = await compressImageFileToJpegDataUrl(file, 0.8);
+      setImage(compressedDataUrl);
+    } catch (err) {
+      console.warn("[Image] Compress failed, fallback to original:", err);
+      // Fallback: use original file as base64
+      try {
+        const original = await blobToDataUrl(file);
+        setImage(original);
+      } catch {
+        alert("图片读取失败，请重试或更换图片");
+      }
+    } finally {
+      setImageProcessing(false);
     }
   };
 
@@ -685,7 +786,7 @@ const App = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if ((!input.trim() && !image) || loading) return;
+    if ((!input.trim() && !image) || loading || imageProcessing) return;
 
     const userText = input;
     const userImage = image;
@@ -829,6 +930,17 @@ const App = () => {
                 <p className="text-[10px] text-zinc-400 font-mono tracking-wide mt-0.5">Made by Oniya</p>
              </div>
           </div>
+
+          <a
+            href="https://github.com/oniyakun/Booth-Hunter"
+            target="_blank"
+            rel="noopener noreferrer"
+            aria-label="GitHub 项目"
+            title="GitHub"
+            className="p-2 rounded-xl text-zinc-400 hover:text-white hover:bg-zinc-800 transition-colors"
+          >
+            <Github size={20} />
+          </a>
         </header>
 
         <main className="flex-grow overflow-y-auto px-4 py-6 scrollbar-thin scrollbar-thumb-zinc-800 scrollbar-track-transparent">
@@ -885,10 +997,11 @@ const App = () => {
               <button
                 type="button"
                 onClick={() => fileInputRef.current?.click()}
-                className="p-3.5 text-zinc-400 hover:text-white hover:bg-zinc-800 rounded-2xl transition-all border border-transparent hover:border-zinc-700"
+                disabled={imageProcessing}
+                className="p-3.5 text-zinc-400 hover:text-white hover:bg-zinc-800 rounded-2xl transition-all border border-transparent hover:border-zinc-700 disabled:opacity-60 disabled:hover:bg-transparent disabled:cursor-not-allowed"
                 title="Upload Image"
               >
-                <ImageIcon size={22} />
+                {imageProcessing ? <Loader2 size={22} className="animate-spin" /> : <ImageIcon size={22} />}
               </button>
               <input
                 ref={fileInputRef}
@@ -908,7 +1021,7 @@ const App = () => {
                 />
                 <button
                   type="submit"
-                  disabled={loading || (!input.trim() && !image)}
+                  disabled={loading || imageProcessing || (!input.trim() && !image)}
                   className="absolute right-2 top-1/2 -translate-y-1/2 p-2.5 bg-[#fc4d50] text-white rounded-xl hover:bg-[#d93f42] disabled:opacity-50 disabled:bg-zinc-700 transition-all shadow-lg hover:shadow-red-900/30"
                 >
                   <Send size={18} />
