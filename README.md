@@ -4,26 +4,31 @@ AI-powered VRChat asset scout for Booth.pm.
 
 ## Features
 
-- 🤖 **AI Semantic Search**: Find assets using natural language.
-- 🕷️ **Live Scraping**: Real-time data from Booth.pm.
-- ☁️ **Cloud Sync**: Save chat history with Supabase.
+- Multi-turn autonomous searching: AI evaluates results and refines keywords automatically.
+- Real-time data scraping: Live information directly from Booth.pm.
+- Cloud synchronization: Persistent chat history and authentication via Supabase.
+- OpenAI compatible: Integration with custom API endpoints.
 
-## Setup
+## Environment Variables
 
-1. **Install dependencies**
+Required variables for .env.local and Vercel:
+
+- GEMINI_API_KEY: Your API key.
+- GEMINI_API_BASE_URL: Base URL for OpenAI compatible API (ending in /v1).
+- GEMINI_MODEL: Model name (default: gemini-3-flash-preview).
+- SUPABASE_URL: Your Supabase project URL.
+- SUPABASE_ANON_KEY: Your Supabase anonymous key.
+
+## Development
+
+1. Install dependencies:
    ```bash
    npm install
    ```
 
-2. **Configure Environment**
-   Create `.env.local` and add:
-   ```env
-   GEMINI_API_KEY=your_key
-   SUPABASE_URL=your_url
-   SUPABASE_ANON_KEY=your_key
+2. Run locally using Vercel CLI:
+   ```bash
+   vercel dev
    ```
 
-3. **Run**
-   ```bash
-   npm run dev
-   ```
+Note: vercel dev is required to run the local Serverless Functions in the api directory.
