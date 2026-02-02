@@ -197,14 +197,14 @@ const Sidebar = ({
             </button>
           </div>
 
-          <div className="flex-grow overflow-y-auto px-2 space-y-1 scrollbar-thin scrollbar-thumb-zinc-800">
-            <h3 className="px-3 text-xs font-bold text-zinc-500 uppercase tracking-wider mb-2 mt-2">历史记录</h3>
+          <div className="flex-grow overflow-y-auto px-4 space-y-1 scrollbar-thin scrollbar-thumb-zinc-800">
+            <h3 className="px-4 text-[10px] font-bold text-zinc-500 uppercase tracking-[0.2em] mb-4 mt-6">历史记录</h3>
             {!user ? (
-               <div className="px-3 text-sm text-zinc-500 py-4 text-center">
+               <div className="px-4 text-sm text-zinc-500 py-4 text-center italic">
                  登录后可保存和查看历史记录
                </div>
             ) : sessions.length === 0 ? (
-               <div className="px-3 text-sm text-zinc-500 py-4 text-center">
+               <div className="px-4 text-sm text-zinc-500 py-4 text-center italic">
                  暂无历史记录
                </div>
             ) : (
@@ -212,7 +212,7 @@ const Sidebar = ({
                 <div key={session.id} className="group flex items-center gap-1 w-full">
                   <button
                     onClick={() => { onSelectSession(session.id); if(window.innerWidth < 768) onClose(); }}
-                    className={`flex-grow text-left px-3 py-3 rounded-lg text-sm flex items-center gap-3 transition-colors ${
+                    className={`flex-grow text-left px-4 py-3 rounded-2xl text-sm flex items-center gap-3 transition-all ${
                       currentSessionId === session.id 
                         ? "bg-[#fc4d50]/10 text-[#fc4d50] border border-[#fc4d50]/20" 
                         : "text-zinc-400 hover:bg-zinc-800/50 hover:text-zinc-200"
@@ -322,7 +322,7 @@ const DraggableContainer = React.memo(({ children }: { children: React.ReactNode
   return (
     <div 
       ref={scrollContainerRef}
-      className="mt-6 w-full overflow-x-auto pb-8 scrollbar-hide flex gap-5 cursor-grab"
+      className="mt-6 w-full overflow-x-auto pb-6 flex gap-5 cursor-grab"
       onMouseDown={onMouseDown}
       onMouseLeave={onMouseLeave}
       onMouseUp={onMouseUp}
@@ -944,7 +944,30 @@ const App = () => {
         .animate-fade-in-up {
             animation: fade-in-up 0.3s ease-out forwards;
         }
-      `}</style>
+
+        /* 自定义全局滚动条 */
+        ::-webkit-scrollbar {
+          width: 5px;
+          height: 5px;
+        }
+        ::-webkit-scrollbar-track {
+          background: transparent;
+        }
+        ::-webkit-scrollbar-thumb {
+          background: rgba(212, 212, 216, 0.3);
+          border-radius: 10px;
+          transition: background 0.2s;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+          background: rgba(212, 212, 216, 0.6);
+        }
+        
+        /* 针对 Firefox */
+        * {
+          scrollbar-width: thin;
+          scrollbar-color: rgba(212, 212, 216, 0.3) transparent;
+        }
+        `}</style>
     </div>
   );
 };
