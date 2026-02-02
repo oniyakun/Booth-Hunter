@@ -80,7 +80,7 @@ export default async function handler(req: Request): Promise<Response> {
     if (chatId) {
       const { data, error } = await admin
         .from('chats')
-        .select('id, user_id, title, messages, created_at, updated_at')
+        .select('id, user_id, title, turn_count, messages, created_at, updated_at')
         .eq('id', chatId)
         .maybeSingle();
       if (error) return json(500, { error: error.message });
@@ -89,7 +89,7 @@ export default async function handler(req: Request): Promise<Response> {
 
     let q = admin
       .from('chats')
-      .select('id, user_id, title, created_at, updated_at')
+      .select('id, user_id, title, turn_count, created_at, updated_at')
       .order('created_at', { ascending: false });
     if (userId) q = q.eq('user_id', userId);
 

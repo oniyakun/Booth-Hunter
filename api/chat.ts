@@ -1,5 +1,6 @@
 import OpenAI from "openai";
 import * as cheerio from "cheerio";
+import { createClient } from '@supabase/supabase-js';
 
 export const config = {
   runtime: 'edge', 
@@ -39,7 +40,7 @@ const PROXIES = [
 async function executeSearchBooth(keyword: string, page: number = 1) {
   console.log(`[Scraper] Starting search for: "${keyword}" (Page ${page})`);
   for (const proxy of PROXIES) {
-    let timeoutId: any;
+    let timeoutId: ReturnType<typeof setTimeout> | null = null;
     try {
       console.log(`[Scraper] Attempting via ${proxy.name}...`);
       const targetUrl = `https://booth.pm/ja/search/${encodeURIComponent(keyword)}?page=${page}`;
@@ -59,13 +60,8 @@ async function executeSearchBooth(keyword: string, page: number = 1) {
       if (timeoutId) clearTimeout(timeoutId);
       if (!res.ok) continue;
       
-      let htmlContent = "";
-      if (proxy.type === 'json') {
-          const data = await res.json();
-          htmlContent = data.contents;
-      } else {
-          htmlContent = await res.text();
-      }
+      // 当前代理返回的都是 HTML
+      const htmlContent = await res.text();
 
       if (!htmlContent || htmlContent.length < 500) continue;
 
@@ -98,6 +94,32 @@ async function executeSearchBooth(keyword: string, page: number = 1) {
   return [];
 }
 
+interface ConsumeTurnResponse {
+  allowed: boolean;
+  reason?: string;
+  session_turn_count?: number;
+  total_turn_count?: number;
+  session_limit?: number;
+  total_limit?: number;
+}
+
+function withJsonHeaders(status: number, body: any): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { 'content-type': 'application/json' },
+  });
+}
+
+function turnMetaHeaders(meta?: ConsumeTurnResponse): Record<string, string> {
+  if (!meta) return {};
+  const h: Record<string, string> = {};
+  if (typeof meta.session_turn_count === 'number') h['x-session-turn-count'] = String(meta.session_turn_count);
+  if (typeof meta.total_turn_count === 'number') h['x-total-turn-count'] = String(meta.total_turn_count);
+  if (typeof meta.session_limit === 'number') h['x-session-limit'] = String(meta.session_limit);
+  if (typeof meta.total_limit === 'number') h['x-total-limit'] = String(meta.total_limit);
+  return h;
+}
+
 export default async function handler(req: any) {
   if (req.method !== 'POST') return new Response('Method Not Allowed', { status: 405 });
 
@@ -106,12 +128,70 @@ export default async function handler(req: any) {
     if (typeof req.json === 'function') body = await req.json();
     else body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
     
-    const { messages } = body;
+    const { messages, chat_id } = body as { messages?: any[]; chat_id?: string };
     const apiKey = process.env.GEMINI_API_KEY;
     const baseURL = process.env.GEMINI_API_BASE_URL;
     const modelName = process.env.GEMINI_MODEL || "gemini-3-flash-preview";
 
+    // 轮数限制：需要用户 JWT + chat_id
+    const supabaseUrl = process.env.SUPABASE_URL;
+    const supabaseAnonKey = process.env.SUPABASE_ANON_KEY;
+    const authHeader = (req?.headers && typeof req.headers.get === 'function')
+      ? (req.headers.get('authorization') || '')
+      : '';
+    const token = typeof authHeader === 'string' && authHeader.toLowerCase().startsWith('bearer ')
+      ? authHeader.slice(7)
+      : '';
+
+    if (!Array.isArray(messages)) return withJsonHeaders(400, { error: 'Invalid messages' });
+
+    if (!chat_id) {
+      return withJsonHeaders(400, { error: 'Missing chat_id' });
+    }
+
+    if (!token) {
+      return withJsonHeaders(401, { error: 'Missing bearer token' });
+    }
+
+    if (!supabaseUrl || !supabaseAnonKey) {
+      return withJsonHeaders(500, { error: 'Configuration Error: SUPABASE_URL / SUPABASE_ANON_KEY missing' });
+    }
+
     if (!apiKey) return new Response('Configuration Error: GEMINI_API_KEY missing', { status: 500 });
+
+    // 在真正调用模型前，先消耗 1 次对话轮数（原子校验/递增）
+    let turnMeta: ConsumeTurnResponse | undefined;
+    try {
+      const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+        auth: { persistSession: false, autoRefreshToken: false },
+        global: { headers: { Authorization: `Bearer ${token}` } },
+      });
+
+      const { data, error } = await supabase.rpc('consume_turn', { p_chat_id: chat_id }).single();
+      if (error) {
+        console.error('[Turns] consume_turn error:', error);
+        return withJsonHeaders(500, { error: error.message });
+      }
+
+      const consumeData = data as ConsumeTurnResponse;
+      turnMeta = consumeData;
+      if (!consumeData?.allowed) {
+        return new Response(
+          JSON.stringify({
+            error: 'TURN_LIMIT',
+            reason: consumeData?.reason,
+            session_turn_count: consumeData?.session_turn_count,
+            total_turn_count: consumeData?.total_turn_count,
+            session_limit: consumeData?.session_limit,
+            total_limit: consumeData?.total_limit,
+          }),
+          { status: 429, headers: { 'content-type': 'application/json', ...turnMetaHeaders(consumeData) } }
+        );
+      }
+    } catch (e: any) {
+      console.error('[Turns] consume_turn failed:', e?.message || e);
+      return withJsonHeaders(500, { error: e?.message || 'consume_turn failed' });
+    }
 
     const openai = new OpenAI({ apiKey, baseURL });
 
@@ -316,11 +396,15 @@ export default async function handler(req: any) {
     });
 
     return new Response(stream, {
-      headers: { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-cache' }
+      headers: {
+        'Content-Type': 'text/plain; charset=utf-8',
+        'Cache-Control': 'no-cache',
+        ...turnMetaHeaders(turnMeta),
+      }
     });
 
   } catch (e: any) {
     console.error("[API] Handler Error:", e.message);
-    return new Response(JSON.stringify({ error: e.message }), { status: 500 });
+    return withJsonHeaders(500, { error: e.message });
   }
 }

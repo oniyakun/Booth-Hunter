@@ -15,6 +15,10 @@ AI-powered VRChat 资产搜索助手（Booth.pm）。
 - 多轮对话搜索：模型会根据结果自动调整关键词
 - Booth.pm 抓取：实时抓取商品信息（标题/价格/标签/链接/图片）
 - Supabase 登录与云端会话：保存/读取历史对话（chats）
+- ✅ 对话轮数统计与限制：
+  - 单会话轮数（每次用户点一次“发送”=1轮）
+  - 总轮数（跨所有会话累计）
+  - 支持管理员设置默认限制，以及对单个用户单独覆盖
 
 ---
 
@@ -69,8 +73,14 @@ supabase/init.sql
 它会做：
 
 - 创建 `public.profiles`（包含 `is_admin`）
+- 为 profiles 增加轮数统计与用户覆盖限制字段：
+  - `total_turn_count`
+  - `session_turn_limit_override`
+  - `total_turn_limit_override`
 - 新用户自动创建 profile 的 trigger（`auth.users` → `profiles`）
 - `public.chats` 的 `updated_at` trigger（要求你的 chats 表已存在）
+- 为 chats 增加 `turn_count`（单会话轮数统计）
+- 创建 `public.app_settings`（全局默认限制）与 `consume_turn(chat_id)` RPC（原子校验+自增）
 - 开启 RLS：
   - `profiles`：用户只能读自己的 profile（用于前端判断是否管理员）
   - `chats`：用户只能读写自己的对话
@@ -86,6 +96,38 @@ supabase/init.sql
 - 收口旧版的 `admin read all` policies（如果你历史上创建过）
 
 ---
+
+## 对话轮数统计与限制（Turns)
+
+### 轮数定义
+
+每次用户点击一次“发送”算 1 轮（不管模型内部 tool loop 多少次）。
+
+### 默认限制（全站）
+
+默认值保存在 `public.app_settings`：
+
+- `default_session_turn_limit`：单会话最大轮数（默认 50；0 表示无限制）
+- `default_total_turn_limit`：用户总轮数最大值（默认 500；0 表示无限制）
+
+管理员面板左侧可直接修改这两个默认值。
+
+### 单独限制（按用户覆盖）
+
+写在 `public.profiles`：
+
+- `session_turn_limit_override`：该用户的单会话上限（NULL=使用默认；0=无限制）
+- `total_turn_limit_override`：该用户的总轮数上限（NULL=使用默认；0=无限制）
+
+管理员面板中，在用户卡片右侧点击“终端”图标可设置。
+
+### 后端行为
+
+`/api/chat` 会在调用模型前先调用 Supabase RPC：
+
+- `consume_turn(chat_id)`
+
+如果超限会返回 HTTP 429，前端会提示“达到上限”。
 
 ## 管理员（Admin）
 

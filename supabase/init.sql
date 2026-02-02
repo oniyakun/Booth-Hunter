@@ -20,10 +20,16 @@ create table if not exists public.profiles (
   id uuid primary key references auth.users(id) on delete cascade,
   email text,
   is_admin boolean not null default false,
+  -- 对话轮数统计（跨所有会话的累计）
+  total_turn_count bigint not null default 0,
+  -- 单独限制（优先级高于全局默认；NULL 表示使用全局默认）
+  session_turn_limit_override integer,
+  total_turn_limit_override bigint,
   created_at timestamptz not null default timezone('utc'::text, now()),
   updated_at timestamptz not null default timezone('utc'::text, now())
 );
 
+-- 兼容旧库：为已存在的 profiles 补齐新列（幂等）
 -- ============ 2) 通用 updated_at trigger ============
 
 create or replace function public.set_updated_at()
@@ -36,6 +42,32 @@ begin
 end;
 $$;
 
+-- 兼容旧库：为已存在的 profiles 补齐新列（幂等）
+alter table public.profiles add column if not exists total_turn_count bigint not null default 0;
+alter table public.profiles add column if not exists session_turn_limit_override integer;
+alter table public.profiles add column if not exists total_turn_limit_override bigint;
+
+-- ============ 2.1) 全局默认限制（管理员可改） ============
+
+create table if not exists public.app_settings (
+  key text primary key,
+  value_bigint bigint not null,
+  updated_at timestamptz not null default timezone('utc'::text, now())
+);
+
+drop trigger if exists app_settings_set_updated_at on public.app_settings;
+create trigger app_settings_set_updated_at
+before update on public.app_settings
+for each row
+execute function public.set_updated_at();
+
+-- 初始化默认值（可在管理员面板里修改）
+insert into public.app_settings (key, value_bigint)
+values
+  ('default_session_turn_limit', 50),
+  ('default_total_turn_limit', 500)
+on conflict (key) do nothing;
+
 drop trigger if exists profiles_set_updated_at on public.profiles;
 create trigger profiles_set_updated_at
 before update on public.profiles
@@ -44,6 +76,10 @@ execute function public.set_updated_at();
 
 -- chats 表必须已存在，否则下面 trigger 会失败。
 -- 如果你是新项目，请先在 Supabase 建好 chats（或把 chats 的建表也放在这里）。
+
+-- chats: 单会话对话轮数统计（每次用户点发送 +1）
+alter table public.chats add column if not exists turn_count integer not null default 0;
+
 drop trigger if exists chats_set_updated_at on public.chats;
 create trigger chats_set_updated_at
 before update on public.chats
@@ -88,10 +124,222 @@ as $$
   );
 $$;
 
+-- ============ 4.5) consume_turn(): 原子“计数+限额” ============
+-- 轮数定义：每次用户点击发送 = 1 轮。
+--
+-- 用途：
+-- - /api/chat 在真正调用模型前先调用该 RPC。
+-- - 若超限，直接返回 allowed=false（并由 /api/chat 返回 429）。
+--
+-- 特点：
+-- - SECURITY DEFINER：可在启用 RLS 的前提下更新 chats/profiles。
+-- - 使用 auth.uid() 作为最终用户身份（必须由携带用户 JWT 的客户端调用）。
+
+create or replace function public.consume_turn(p_chat_id uuid)
+returns table (
+  allowed boolean,
+  reason text,
+  session_turn_count integer,
+  total_turn_count bigint,
+  session_limit integer,
+  total_limit bigint
+)
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_uid uuid;
+  v_session_limit integer;
+  v_total_limit bigint;
+  v_profile public.profiles%rowtype;
+  v_chat record;
+begin
+  v_uid := auth.uid();
+  if v_uid is null then
+    return query select false, 'not_authenticated', 0, 0::bigint, 0, 0::bigint;
+    return;
+  end if;
+
+  -- 读取全局默认限制
+  select value_bigint::integer into v_session_limit
+  from public.app_settings
+  where key = 'default_session_turn_limit';
+
+  select value_bigint into v_total_limit
+  from public.app_settings
+  where key = 'default_total_turn_limit';
+
+  if v_session_limit is null then v_session_limit := 50; end if;
+  if v_total_limit is null then v_total_limit := 500; end if;
+
+  -- 锁定/读取 profile
+  select * into v_profile
+  from public.profiles
+  where id = v_uid
+  for update;
+
+  if not found then
+    -- 极端情况下 profiles 不存在（例如旧数据/触发器没跑），补一条。
+    insert into public.profiles (id)
+    values (v_uid)
+    on conflict (id) do nothing;
+
+    select * into v_profile
+    from public.profiles
+    where id = v_uid
+    for update;
+  end if;
+
+  -- 应用用户覆盖限制（NULL 表示用默认）
+  v_session_limit := coalesce(v_profile.session_turn_limit_override, v_session_limit);
+  v_total_limit := coalesce(v_profile.total_turn_limit_override, v_total_limit);
+
+  -- 锁定/读取 chat，如果不存在则创建占位行
+  select id, user_id, turn_count
+  into v_chat
+  from public.chats
+  where id = p_chat_id
+  for update;
+
+  if not found then
+    insert into public.chats (id, user_id, title, messages)
+    values (p_chat_id, v_uid, null, '[]'::jsonb)
+    on conflict (id) do nothing;
+
+    select id, user_id, turn_count
+    into v_chat
+    from public.chats
+    where id = p_chat_id
+    for update;
+  end if;
+
+  if v_chat.user_id <> v_uid then
+    return query select false, 'forbidden', v_chat.turn_count, v_profile.total_turn_count, v_session_limit, v_total_limit;
+    return;
+  end if;
+
+  -- 检查限额（<=0 视为无限制）
+  if v_session_limit > 0 and (v_chat.turn_count + 1) > v_session_limit then
+    return query select false, 'session_limit', v_chat.turn_count, v_profile.total_turn_count, v_session_limit, v_total_limit;
+    return;
+  end if;
+
+  if v_total_limit > 0 and (v_profile.total_turn_count + 1) > v_total_limit then
+    return query select false, 'total_limit', v_chat.turn_count, v_profile.total_turn_count, v_session_limit, v_total_limit;
+    return;
+  end if;
+
+  update public.chats
+  set turn_count = turn_count + 1,
+      updated_at = timezone('utc'::text, now())
+  where id = p_chat_id;
+
+  -- 注意：total_turn_count 同时也是返回列名（OUT 参数变量），这里必须给表起别名避免歧义
+  update public.profiles p
+  set total_turn_count = p.total_turn_count + 1,
+      updated_at = timezone('utc'::text, now())
+  where p.id = v_uid;
+
+  -- 返回更新后的值（注意：返回列名与表字段名可能同名，必须加别名避免歧义）
+  select c.turn_count into session_turn_count
+  from public.chats c
+  where c.id = p_chat_id;
+
+  select p.total_turn_count into total_turn_count
+  from public.profiles p
+  where p.id = v_uid;
+
+  allowed := true;
+  reason := null;
+  session_limit := v_session_limit;
+  total_limit := v_total_limit;
+  return next;
+end;
+$$;
+
+-- 仅允许已登录用户调用（函数内部也会检查 auth.uid()）
+revoke all on function public.consume_turn(uuid) from public;
+grant execute on function public.consume_turn(uuid) to authenticated;
+
+-- ============ 4.6) get_turn_meta(): 只读“统计+限额”（不消耗轮数） ============
+-- 用途：前端初次加载时展示“总轮数/总上限”。
+-- 特点：
+-- - SECURITY DEFINER：在 app_settings 开启 RLS（且客户端无权限）时仍可读取默认值。
+-- - 不更新 chats / profiles，只返回当前值。
+
+create or replace function public.get_turn_meta()
+returns table (
+  total_turn_count bigint,
+  session_limit integer,
+  total_limit bigint
+)
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_uid uuid;
+  v_session_limit integer;
+  v_total_limit bigint;
+  v_profile public.profiles%rowtype;
+begin
+  v_uid := auth.uid();
+  if v_uid is null then
+    return query select 0::bigint, 0, 0::bigint;
+    return;
+  end if;
+
+  -- 读取全局默认限制
+  select value_bigint::integer into v_session_limit
+  from public.app_settings
+  where key = 'default_session_turn_limit';
+
+  select value_bigint into v_total_limit
+  from public.app_settings
+  where key = 'default_total_turn_limit';
+
+  if v_session_limit is null then v_session_limit := 50; end if;
+  if v_total_limit is null then v_total_limit := 500; end if;
+
+  select * into v_profile
+  from public.profiles
+  where id = v_uid;
+
+  if not found then
+    insert into public.profiles (id)
+    values (v_uid)
+    on conflict (id) do nothing;
+
+    select * into v_profile
+    from public.profiles
+    where id = v_uid;
+  end if;
+
+  -- 应用用户覆盖限制（NULL 表示用默认）
+  v_session_limit := coalesce(v_profile.session_turn_limit_override, v_session_limit);
+  v_total_limit := coalesce(v_profile.total_turn_limit_override, v_total_limit);
+
+  return query select v_profile.total_turn_count, v_session_limit, v_total_limit;
+end;
+$$;
+
+revoke all on function public.get_turn_meta() from public;
+grant execute on function public.get_turn_meta() to authenticated;
+
 -- ============ 5) RLS ============
 
 alter table public.profiles enable row level security;
 alter table public.chats enable row level security;
+
+-- app_settings 仅允许服务端（service_role）访问，不开放给客户端。
+alter table public.app_settings enable row level security;
+drop policy if exists "app_settings: no access" on public.app_settings;
+create policy "app_settings: no access"
+on public.app_settings
+for all
+using (false)
+with check (false);
 
 -- profiles: 仅允许读自己的 profile（用于前端判断 is_admin）
 drop policy if exists "profiles: read own" on public.profiles;
@@ -174,5 +422,10 @@ using (auth.uid() = user_id);
 
 -- drop policy if exists "profiles: admin read all" on public.profiles;
 -- drop policy if exists "chats: admin read all" on public.chats;
+
+
+
+
+
 
 

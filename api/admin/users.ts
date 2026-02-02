@@ -26,7 +26,9 @@ function json(status: number, body: any): Response {
  * - Checks profiles.is_admin for the caller
  */
 export default async function handler(req: Request): Promise<Response> {
-  if (req.method !== 'GET' && req.method !== 'DELETE') return new Response('Method Not Allowed', { status: 405 });
+  if (req.method !== 'GET' && req.method !== 'DELETE' && req.method !== 'PATCH') {
+    return new Response('Method Not Allowed', { status: 405 });
+  }
 
   try {
     const supabaseUrl = getEnv('SUPABASE_URL');
@@ -59,6 +61,29 @@ export default async function handler(req: Request): Promise<Response> {
     if (profErr) return json(500, { error: profErr.message });
     if (!profile?.is_admin) return json(403, { error: 'Forbidden' });
 
+    // PATCH /api/admin/users?id=<uuid>
+    // body: { session_turn_limit_override?: number|null, total_turn_limit_override?: number|null }
+    if (req.method === 'PATCH') {
+      const url = new URL(req.url);
+      const targetId = url.searchParams.get('id');
+      if (!targetId) return json(400, { error: 'Missing query param: id' });
+
+      const body = await req.json().catch(() => ({}));
+      const patch: any = {};
+      if ('session_turn_limit_override' in body) patch.session_turn_limit_override = body.session_turn_limit_override;
+      if ('total_turn_limit_override' in body) patch.total_turn_limit_override = body.total_turn_limit_override;
+
+      const { data, error } = await admin
+        .from('profiles')
+        .update(patch)
+        .eq('id', targetId)
+        .select('id, email, is_admin, created_at, total_turn_count, session_turn_limit_override, total_turn_limit_override')
+        .maybeSingle();
+
+      if (error) return json(500, { error: error.message });
+      return json(200, { data });
+    }
+
     // DELETE /api/admin/users?id=<uuid>
     // 行为：删除目标用户的 chats（避免孤儿数据）+ 删除 auth.users（触发 profiles 外键级联删除）
     if (req.method === 'DELETE') {
@@ -79,7 +104,7 @@ export default async function handler(req: Request): Promise<Response> {
 
     const { data, error } = await admin
       .from('profiles')
-      .select('id, email, is_admin, created_at')
+      .select('id, email, is_admin, created_at, total_turn_count, session_turn_limit_override, total_turn_limit_override')
       .order('created_at', { ascending: false });
 
     if (error) return json(500, { error: error.message });

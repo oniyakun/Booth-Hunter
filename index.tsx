@@ -5,6 +5,235 @@ import ReactMarkdown from "react-markdown";
 import { supabase } from "./supabaseClient";
 import { Analytics } from "@vercel/analytics/react";
 
+function uuidv4(): string {
+  // RFC4122 v4, modern browsers
+  // @ts-ignore
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') return crypto.randomUUID();
+  // fallback
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    const v = c === 'x' ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  });
+}
+
+// --- Toast / Notifications (no extra deps) ---
+
+type ToastType = 'success' | 'error' | 'info';
+
+type Toast = {
+  id: string;
+  type: ToastType;
+  title?: string;
+  message: string;
+  timeoutMs?: number;
+};
+
+type ConfirmOptions = {
+  title: string;
+  message: string;
+  confirmText?: string;
+  cancelText?: string;
+  destructive?: boolean;
+};
+
+type UserLimitDraft = {
+  session_turn_limit_override: number | null;
+  total_turn_limit_override: number | null;
+};
+
+const toastAccent = (t: ToastType) => {
+  if (t === 'success') return 'border-emerald-500/30 bg-emerald-500/10 text-emerald-200';
+  if (t === 'error') return 'border-[#ff3d7f]/30 bg-[#ff3d7f]/10 text-[#ffd1e1]';
+  return 'border-white/10 bg-white/5 text-zinc-200';
+};
+
+const ToastViewport = ({ toasts, onDismiss }: { toasts: Toast[]; onDismiss: (id: string) => void }) => {
+  return (
+    <div className="fixed right-4 bottom-4 z-[90] w-[calc(100vw-2rem)] max-w-sm space-y-3">
+      {toasts.map((t) => (
+        <div
+          key={t.id}
+          className={`bh-surface-strong border shadow-2xl rounded-2xl p-4 backdrop-blur-md ${toastAccent(t.type)}`}
+        >
+          <div className="flex items-start gap-3">
+            <div className="mt-0.5">
+              {t.type === 'success' ? (
+                <Sparkles size={16} />
+              ) : t.type === 'error' ? (
+                <AlertCircle size={16} />
+              ) : (
+                <Terminal size={16} />
+              )}
+            </div>
+            <div className="min-w-0 flex-1">
+              {t.title && <div className="text-sm font-bold text-white truncate">{t.title}</div>}
+              <div className="text-sm text-zinc-200 leading-relaxed break-words">{t.message}</div>
+            </div>
+            <button
+              onClick={() => onDismiss(t.id)}
+              className="p-1 rounded-lg text-zinc-300 hover:text-white hover:bg-white/10"
+              aria-label="关闭通知"
+              title="关闭"
+            >
+              <X size={16} />
+            </button>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+};
+
+const ModalShell = ({
+  open,
+  title,
+  children,
+  onClose,
+}: {
+  open: boolean;
+  title: string;
+  children: React.ReactNode;
+  onClose: () => void;
+}) => {
+  if (!open) return null;
+  return (
+    <div className="fixed inset-0 z-[95] bg-black/70 backdrop-blur-md flex items-center justify-center p-4">
+      <div className="w-full max-w-md bh-surface-strong rounded-3xl border border-white/10 shadow-2xl overflow-hidden">
+        <div className="p-4 border-b border-white/5 flex items-center justify-between">
+          <div className="text-white font-bold">{title}</div>
+          <button onClick={onClose} className="bh-icon-btn p-2 text-zinc-300 hover:text-white" aria-label="关闭">
+            <X size={18} />
+          </button>
+        </div>
+        <div className="p-4">{children}</div>
+      </div>
+    </div>
+  );
+};
+
+const ConfirmModal = ({
+  open,
+  options,
+  onCancel,
+  onConfirm,
+}: {
+  open: boolean;
+  options: ConfirmOptions;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) => {
+  return (
+    <ModalShell open={open} title={options.title} onClose={onCancel}>
+      <div className="text-sm text-zinc-300 leading-relaxed whitespace-pre-wrap">{options.message}</div>
+      <div className="mt-5 flex gap-3">
+        <button
+          onClick={onCancel}
+          className="flex-1 py-2.5 rounded-xl text-sm font-medium bh-btn-secondary text-white"
+        >
+          {options.cancelText || '取消'}
+        </button>
+        <button
+          onClick={onConfirm}
+          className={`flex-1 py-2.5 rounded-xl text-sm font-bold text-white transition-all ${
+            options.destructive ? 'bg-[#ff3d7f] hover:bg-[#ff3d7f]/90' : 'bh-btn-primary'
+          }`}
+        >
+          {options.confirmText || '确定'}
+        </button>
+      </div>
+    </ModalShell>
+  );
+};
+
+const UserLimitModal = ({
+  open,
+  emailOrId,
+  initial,
+  onCancel,
+  onSave,
+}: {
+  open: boolean;
+  emailOrId: string;
+  initial: UserLimitDraft;
+  onCancel: () => void;
+  onSave: (draft: UserLimitDraft) => void;
+}) => {
+  const [sessionStr, setSessionStr] = useState<string>(initial.session_turn_limit_override == null ? '' : String(initial.session_turn_limit_override));
+  const [totalStr, setTotalStr] = useState<string>(initial.total_turn_limit_override == null ? '' : String(initial.total_turn_limit_override));
+
+  useEffect(() => {
+    if (!open) return;
+    setSessionStr(initial.session_turn_limit_override == null ? '' : String(initial.session_turn_limit_override));
+    setTotalStr(initial.total_turn_limit_override == null ? '' : String(initial.total_turn_limit_override));
+  }, [open, initial.session_turn_limit_override, initial.total_turn_limit_override]);
+
+  const parseOptionalInt = (s: string): number | null => {
+    const t = s.trim();
+    if (!t) return null;
+    const n = Number(t);
+    if (!Number.isFinite(n)) throw new Error('请输入数字');
+    return Math.trunc(n);
+  };
+
+  return (
+    <ModalShell open={open} title="设置用户限制" onClose={onCancel}>
+      <div className="text-xs text-zinc-400 mb-3">
+        目标用户：<span className="text-zinc-200 font-mono">{emailOrId}</span>
+      </div>
+
+      <div className="space-y-3">
+        <div>
+          <label className="block text-xs font-medium text-zinc-400 mb-1">单会话轮数上限</label>
+          <input
+            value={sessionStr}
+            onChange={(e) => setSessionStr(e.target.value)}
+            placeholder="留空=默认，0=无限制"
+            className="w-full rounded-xl px-4 py-3 text-white focus:outline-none bh-input"
+            inputMode="numeric"
+          />
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-zinc-400 mb-1">总轮数上限</label>
+          <input
+            value={totalStr}
+            onChange={(e) => setTotalStr(e.target.value)}
+            placeholder="留空=默认，0=无限制"
+            className="w-full rounded-xl px-4 py-3 text-white focus:outline-none bh-input"
+            inputMode="numeric"
+          />
+        </div>
+      </div>
+
+      <div className="mt-3 text-[11px] text-zinc-500 leading-relaxed">
+        留空表示使用全局默认；0 表示无限制。
+      </div>
+
+      <div className="mt-5 flex gap-3">
+        <button onClick={onCancel} className="flex-1 py-2.5 rounded-xl text-sm font-medium bh-btn-secondary text-white">
+          取消
+        </button>
+        <button
+          onClick={() => {
+            try {
+              onSave({
+                session_turn_limit_override: parseOptionalInt(sessionStr),
+                total_turn_limit_override: parseOptionalInt(totalStr),
+              });
+            } catch (e: any) {
+              // 交给外部 toast
+              throw e;
+            }
+          }}
+          className="flex-1 py-2.5 rounded-xl text-sm font-bold bh-btn-primary text-white"
+        >
+          保存
+        </button>
+      </div>
+    </ModalShell>
+  );
+};
+
 // --- Image Utils ---
 
 async function blobToDataUrl(blob: Blob): Promise<string> {
@@ -119,12 +348,25 @@ interface Message {
   toolCall?: string; // Track if this message involved a tool call
   status?: string;   // Current system status/progress
   isStreaming?: boolean;
+  turnMeta?: {
+    session_turn_count?: number;
+    total_turn_count?: number;
+    session_limit?: number;
+    total_limit?: number;
+  };
 }
+
+const formatLimit = (n?: number): string => {
+  if (n == null) return '—';
+  if (n === 0) return '∞';
+  return String(n);
+};
 
 interface ChatSession {
   id: string;
   title: string;
   created_at: string;
+  turn_count?: number;
 }
 
 interface Profile {
@@ -132,14 +374,23 @@ interface Profile {
   email?: string;
   is_admin?: boolean;
   created_at?: string;
+  total_turn_count?: number;
+  session_turn_limit_override?: number | null;
+  total_turn_limit_override?: number | null;
 }
 
 interface AdminChatMeta {
   id: string;
   user_id: string;
   title: string | null;
+  turn_count?: number;
   created_at: string;
   updated_at: string;
+}
+
+interface AdminSettings {
+  default_session_turn_limit: number;
+  default_total_turn_limit: number;
 }
 
 type AdminChatDetail = AdminChatMeta & { messages: Message[] | null };
@@ -168,7 +419,17 @@ async function adminFetchJson<T>(path: string): Promise<T> {
   return data as T;
 }
 
-const AdminPanel = ({ onClose }: { onClose: () => void }) => {
+const AdminPanel = ({
+  onClose,
+  confirm,
+  notify,
+  editUserLimits,
+}: {
+  onClose: () => void;
+  confirm: (opts: ConfirmOptions) => Promise<boolean>;
+  notify: (t: Omit<Toast, 'id'>) => void;
+  editUserLimits: (u: Profile) => Promise<UserLimitDraft | null>;
+}) => {
   const [users, setUsers] = useState<Profile[]>([]);
   const [usersLoading, setUsersLoading] = useState(false);
   const [userDeletingId, setUserDeletingId] = useState<string | null>(null);
@@ -181,6 +442,10 @@ const AdminPanel = ({ onClose }: { onClose: () => void }) => {
   const [chatLoading, setChatLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [userQuery, setUserQuery] = useState('');
+
+  // Turn limits
+  const [settings, setSettings] = useState<AdminSettings | null>(null);
+  const [settingsSaving, setSettingsSaving] = useState(false);
 
   // Admin 详情里需要把历史消息中可能包含的商品卡片渲染出来。
   // - 新版本 messages 里通常会带 items 字段。
@@ -310,14 +575,101 @@ const AdminPanel = ({ onClose }: { onClose: () => void }) => {
       setUsers(res.data || []);
     } catch (e: any) {
       setError(e?.message || '加载用户失败');
+      notify({ type: 'error', title: '加载失败', message: e?.message || '加载用户失败' });
     } finally {
       setUsersLoading(false);
     }
   };
 
+  const loadSettings = async () => {
+    setError(null);
+    try {
+      const res = await adminFetchJson<{ data: AdminSettings }>('/api/admin/settings');
+      setSettings(res.data);
+    } catch (e: any) {
+      // Fail-closed: 不影响其它 admin 功能
+      console.warn('[Admin] loadSettings failed:', e?.message || e);
+    }
+  };
+
+  const saveSettings = async () => {
+    if (!settings) return;
+    setSettingsSaving(true);
+    setError(null);
+    try {
+      const token = await getSupabaseAccessToken();
+      if (!token) throw new Error('Not authenticated');
+
+      const res = await fetch('/api/admin/settings', {
+        method: 'PATCH',
+        headers: {
+          'content-type': 'application/json',
+          authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          default_session_turn_limit: settings.default_session_turn_limit,
+          default_total_turn_limit: settings.default_total_turn_limit,
+        }),
+      });
+
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error((data as any)?.error || `Request failed: ${res.status}`);
+      setSettings((data as any)?.data || settings);
+      notify({ type: 'success', title: '已保存', message: '默认限制已更新' });
+    } catch (e: any) {
+      setError(e?.message || '保存默认限制失败');
+      notify({ type: 'error', title: '保存失败', message: e?.message || '保存默认限制失败' });
+    } finally {
+      setSettingsSaving(false);
+    }
+  };
+
+  const onClickEditUserLimits = async (u: Profile) => {
+    if (!u?.id) return;
+    setError(null);
+    try {
+      const draft = await editUserLimits(u);
+      if (!draft) return;
+
+      const token = await getSupabaseAccessToken();
+      if (!token) throw new Error('Not authenticated');
+
+      const res = await fetch(`/api/admin/users?id=${encodeURIComponent(u.id)}`, {
+        method: 'PATCH',
+        headers: {
+          'content-type': 'application/json',
+          authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify(draft),
+      });
+
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error((data as any)?.error || `Request failed: ${res.status}`);
+
+      const updated = (data as any)?.data as Profile | undefined;
+      if (updated?.id) {
+        setUsers((prev) => prev.map((x) => (x.id === updated.id ? { ...x, ...updated } : x)));
+      } else {
+        await loadUsers();
+      }
+
+      notify({ type: 'success', title: '已保存', message: '用户限制已更新' });
+    } catch (e: any) {
+      notify({ type: 'error', title: '设置失败', message: e?.message || '设置用户限制失败' });
+      setError(e?.message || '设置用户限制失败');
+    }
+  };
+
   const deleteUser = async (userId: string) => {
     if (!userId) return;
-    if (!window.confirm('确定要删除该用户吗？\n\n这会同时删除：\n- auth.users\n- profiles\n- 该用户所有 chats\n\n此操作不可恢复。')) return;
+    const ok = await confirm({
+      title: '删除用户',
+      message: '确定要删除该用户吗？\n\n这会同时删除：\n- auth.users\n- profiles\n- 该用户所有 chats\n\n此操作不可恢复。',
+      confirmText: '删除',
+      cancelText: '取消',
+      destructive: true,
+    });
+    if (!ok) return;
 
     setUserDeletingId(userId);
     setError(null);
@@ -343,8 +695,10 @@ const AdminPanel = ({ onClose }: { onClose: () => void }) => {
         setChats([]);
       }
       await loadUsers();
+      notify({ type: 'success', title: '已删除', message: '用户已删除' });
     } catch (e: any) {
       setError(e?.message || '删除用户失败');
+      notify({ type: 'error', title: '删除失败', message: e?.message || '删除用户失败' });
     } finally {
       setUserDeletingId(null);
     }
@@ -361,6 +715,7 @@ const AdminPanel = ({ onClose }: { onClose: () => void }) => {
       setChats(res.data || []);
     } catch (e: any) {
       setError(e?.message || '加载对话列表失败');
+      notify({ type: 'error', title: '加载失败', message: e?.message || '加载对话列表失败' });
     } finally {
       setChatsLoading(false);
     }
@@ -368,7 +723,14 @@ const AdminPanel = ({ onClose }: { onClose: () => void }) => {
 
   const deleteChat = async (chatId: string) => {
     if (!chatId) return;
-    if (!window.confirm('确定要删除这条对话吗？\n\n此操作不可恢复。')) return;
+    const ok = await confirm({
+      title: '删除对话',
+      message: '确定要删除这条对话吗？\n\n此操作不可恢复。',
+      confirmText: '删除',
+      cancelText: '取消',
+      destructive: true,
+    });
+    if (!ok) return;
 
     setChatDeletingId(chatId);
     setError(null);
@@ -394,8 +756,10 @@ const AdminPanel = ({ onClose }: { onClose: () => void }) => {
 
       // 从列表里移除（避免一次全量刷新），并保持 UI 响应快
       setChats((prev) => prev.filter((c) => c.id !== chatId));
+      notify({ type: 'success', title: '已删除', message: '对话已删除' });
     } catch (e: any) {
       setError(e?.message || '删除对话失败');
+      notify({ type: 'error', title: '删除失败', message: e?.message || '删除对话失败' });
     } finally {
       setChatDeletingId(null);
     }
@@ -411,6 +775,7 @@ const AdminPanel = ({ onClose }: { onClose: () => void }) => {
       setChatDetail(res.data);
     } catch (e: any) {
       setError(e?.message || '加载对话详情失败');
+      notify({ type: 'error', title: '加载失败', message: e?.message || '加载对话详情失败' });
     } finally {
       setChatLoading(false);
     }
@@ -420,6 +785,7 @@ const AdminPanel = ({ onClose }: { onClose: () => void }) => {
     // 默认只加载用户列表；避免管理员打开面板时立刻拉取“全站所有对话”。
     // 需要查看对话时，让管理员主动点击“全部对话”或选择某个用户。
     loadUsers();
+    loadSettings();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -462,6 +828,49 @@ const AdminPanel = ({ onClose }: { onClose: () => void }) => {
                 placeholder="搜索 email / user_id"
                 className="w-full rounded-xl px-4 py-2.5 text-white focus:outline-none bh-input"
               />
+
+              {/* Default limits */}
+              <div className="mt-3 p-3 rounded-2xl border border-white/5 bg-white/5">
+                <div className="text-[11px] text-zinc-400 font-mono mb-2">默认限制</div>
+                <div className="grid grid-cols-2 gap-2">
+                  <input
+                    value={settings?.default_session_turn_limit ?? ''}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      setSettings((s) => ({
+                        default_session_turn_limit: v === '' ? 0 : Number(v),
+                        default_total_turn_limit: s?.default_total_turn_limit ?? 0,
+                      }));
+                    }}
+                    placeholder="单会话"
+                    className="w-full rounded-xl px-3 py-2 text-white focus:outline-none bh-input text-sm"
+                    inputMode="numeric"
+                  />
+                  <input
+                    value={settings?.default_total_turn_limit ?? ''}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      setSettings((s) => ({
+                        default_session_turn_limit: s?.default_session_turn_limit ?? 0,
+                        default_total_turn_limit: v === '' ? 0 : Number(v),
+                      }));
+                    }}
+                    placeholder="总轮数"
+                    className="w-full rounded-xl px-3 py-2 text-white focus:outline-none bh-input text-sm"
+                    inputMode="numeric"
+                  />
+                </div>
+                <button
+                  onClick={saveSettings}
+                  disabled={settingsSaving || !settings}
+                  className="mt-2 w-full py-2 rounded-xl text-sm font-medium bh-btn-secondary text-white disabled:opacity-50"
+                >
+                  {settingsSaving ? '保存中...' : '保存默认限制'}
+                </button>
+                <div className="mt-2 text-[10px] text-zinc-500 leading-relaxed">
+                  0 表示无限制；留空将被视为 0。
+                </div>
+              </div>
               <div className="mt-3 flex gap-2">
                 <button
                   onClick={() => loadChats(null)}
@@ -511,21 +920,45 @@ const AdminPanel = ({ onClose }: { onClose: () => void }) => {
                       <div className="min-w-0 flex-1">
                         <div className="text-sm text-white font-medium truncate">{u.email || u.id}</div>
                         <div className="text-[10px] text-zinc-500 font-mono truncate mt-1">{u.id}</div>
+                        <div className="text-[10px] text-zinc-500 mt-1">
+                          总轮数：<span className="text-zinc-300">{u.total_turn_count ?? 0}</span>
+                        </div>
+                        <div className="text-[10px] text-zinc-500 mt-1">
+                          覆盖限制：
+                          <span className="text-zinc-300">
+                            会话 {u.session_turn_limit_override ?? '默认'} / 总 {u.total_turn_limit_override ?? '默认'}
+                          </span>
+                        </div>
                       </div>
 
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          deleteUser(u.id);
-                        }}
-                        disabled={!!userDeletingId}
-                        className="p-2 rounded-xl bh-btn-secondary text-zinc-200 hover:text-white disabled:opacity-50"
-                        title="删除用户"
-                        aria-label="删除用户"
-                      >
-                        {userDeletingId === u.id ? <Loader2 size={16} className="animate-spin" /> : <Trash2 size={16} />}
-                      </button>
+                      <div className="flex flex-col gap-2">
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onClickEditUserLimits(u);
+                          }}
+                          className="p-2 rounded-xl bh-btn-secondary text-zinc-200 hover:text-white"
+                          title="设置该用户限制"
+                          aria-label="设置该用户限制"
+                        >
+                          <Terminal size={16} />
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            deleteUser(u.id);
+                          }}
+                          disabled={!!userDeletingId}
+                          className="p-2 rounded-xl bh-btn-secondary text-zinc-200 hover:text-white disabled:opacity-50"
+                          title="删除用户"
+                          aria-label="删除用户"
+                        >
+                          {userDeletingId === u.id ? <Loader2 size={16} className="animate-spin" /> : <Trash2 size={16} />}
+                        </button>
+                      </div>
                     </div>
                     {u.is_admin && (
                       <div className="mt-2 inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-lg bg-[#ff3d7f]/10 border border-[#ff3d7f]/20 text-[#ff3d7f]">
@@ -609,6 +1042,7 @@ const AdminPanel = ({ onClose }: { onClose: () => void }) => {
                       </div>
                       <div className="text-[10px] text-zinc-500 font-mono truncate mt-1">chat: {c.id}</div>
                       <div className="text-[10px] text-zinc-500 font-mono truncate mt-1">user: {c.user_id}</div>
+                      <div className="text-[10px] text-zinc-500 mt-1">轮数：{c.turn_count ?? 0}</div>
                       <div className="text-[10px] text-zinc-600 mt-1">{new Date(c.created_at).toLocaleString()}</div>
                     </div>
                   ))
@@ -633,6 +1067,7 @@ const AdminPanel = ({ onClose }: { onClose: () => void }) => {
                       <div className="text-white font-bold text-lg truncate">{chatDetail.title || '未命名对话'}</div>
                       <div className="text-[11px] text-zinc-500 font-mono mt-1">chat: {chatDetail.id}</div>
                       <div className="text-[11px] text-zinc-500 font-mono mt-1">user: {chatDetail.user_id}</div>
+                      <div className="text-[11px] text-zinc-500 font-mono mt-1">turn_count: {chatDetail.turn_count ?? 0}</div>
                     </div>
 
                     <div className="space-y-4">
@@ -840,6 +1275,8 @@ const Sidebar = ({
   onNewChat,
   onOpenAuth,
   onDeleteSession,
+  totalTurnCount,
+  totalTurnLimit,
   reducedMotion
 }: { 
   isOpen: boolean; 
@@ -853,6 +1290,8 @@ const Sidebar = ({
   onNewChat: () => void;
   onOpenAuth: () => void;
   onDeleteSession: (id: string) => void;
+  totalTurnCount?: number;
+  totalTurnLimit?: number;
   reducedMotion: boolean;
 }) => {
   return (
@@ -974,6 +1413,9 @@ const Sidebar = ({
                       <div className="flex flex-col truncate">
                         <span className="text-sm text-white truncate font-medium">{user.email?.split('@')[0]}</span>
                         <span className="text-[10px] text-zinc-500 truncate">{user.email}</span>
+                        <span className="text-[10px] text-zinc-600 truncate mt-0.5">
+                          总轮数 {totalTurnCount ?? '—'} / {formatLimit(totalTurnLimit)}
+                        </span>
                       </div>
                    </div>
                    <button 
@@ -1204,6 +1646,13 @@ const ChatMessageBubble = React.memo(({ message, largeLayout }: { message: Messa
             </ReactMarkdown>
             {message.isStreaming && <span className="inline-block w-2 h-4 ml-1 bg-[#fc4d50] animate-pulse align-middle rounded-sm"></span>}
           </div>
+
+          {/* Subtle turn meta for assistant replies */}
+          {!isUser && message.turnMeta && (
+            <div className="mt-3 text-[11px] text-zinc-500 font-mono opacity-70 select-none">
+              本会话 {message.turnMeta.session_turn_count ?? '—'}/{formatLimit(message.turnMeta.session_limit)}
+            </div>
+          )}
         </div>
 
         {/* Asset Cards Grid */}
@@ -1285,6 +1734,74 @@ const App = () => {
   const [isAdmin, setIsAdmin] = useState(false);
   const [isAdminPanelOpen, setIsAdminPanelOpen] = useState(false);
 
+  // Latest turn meta (for sidebar display)
+  const [totalTurnCount, setTotalTurnCount] = useState<number | undefined>(undefined);
+  const [totalTurnLimit, setTotalTurnLimit] = useState<number | undefined>(undefined);
+
+  // Toasts
+  const [toasts, setToasts] = useState<Toast[]>([]);
+  const pushToast = (t: Omit<Toast, 'id'>) => {
+    const id = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    const toast: Toast = { id, timeoutMs: 4200, ...t };
+    setToasts((prev) => [toast, ...prev].slice(0, 4));
+    const ms = toast.timeoutMs ?? 4200;
+    if (ms > 0) {
+      window.setTimeout(() => {
+        setToasts((prev) => prev.filter((x) => x.id !== id));
+      }, ms);
+    }
+  };
+  const dismissToast = (id: string) => setToasts((prev) => prev.filter((t) => t.id !== id));
+
+  // Confirm modal (async)
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [confirmOptions, setConfirmOptions] = useState<ConfirmOptions>({
+    title: '确认',
+    message: '',
+    confirmText: '确定',
+    cancelText: '取消',
+  });
+  const confirmResolverRef = useRef<((v: boolean) => void) | null>(null);
+  const confirmAsync = (opts: ConfirmOptions): Promise<boolean> => {
+    setConfirmOptions(opts);
+    setConfirmOpen(true);
+    return new Promise<boolean>((resolve) => {
+      confirmResolverRef.current = resolve;
+    });
+  };
+  const closeConfirm = (v: boolean) => {
+    setConfirmOpen(false);
+    const r = confirmResolverRef.current;
+    confirmResolverRef.current = null;
+    r?.(v);
+  };
+
+  // User limit modal (async)
+  const [limitModalOpen, setLimitModalOpen] = useState(false);
+  const [limitModalUser, setLimitModalUser] = useState<Profile | null>(null);
+  const [limitModalDraft, setLimitModalDraft] = useState<UserLimitDraft>({
+    session_turn_limit_override: null,
+    total_turn_limit_override: null,
+  });
+  const limitResolverRef = useRef<((v: UserLimitDraft | null) => void) | null>(null);
+  const editUserLimitsAsync = (u: Profile): Promise<UserLimitDraft | null> => {
+    setLimitModalUser(u);
+    setLimitModalDraft({
+      session_turn_limit_override: u.session_turn_limit_override ?? null,
+      total_turn_limit_override: u.total_turn_limit_override ?? null,
+    });
+    setLimitModalOpen(true);
+    return new Promise<UserLimitDraft | null>((resolve) => {
+      limitResolverRef.current = resolve;
+    });
+  };
+  const closeLimitModal = (v: UserLimitDraft | null) => {
+    setLimitModalOpen(false);
+    const r = limitResolverRef.current;
+    limitResolverRef.current = null;
+    r?.(v);
+  };
+
   const emailVerified = !!(user && isUserEmailVerified(user));
   const canUseApp = !!user && emailVerified;
   
@@ -1294,6 +1811,26 @@ const App = () => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const sessionMessagesCacheRef = useRef<Record<string, Message[]>>({});
   const sessionMessagesInFlightRef = useRef<Record<string, Promise<Message[]>>>({});
+
+  const parseTurnMetaFromHeaders = (headers: Headers): Message['turnMeta'] => {
+    const toNum = (v: string | null): number | undefined => {
+      if (v == null) return undefined;
+      const n = Number(v);
+      return Number.isFinite(n) ? n : undefined;
+    };
+    return {
+      session_turn_count: toNum(headers.get('x-session-turn-count')),
+      total_turn_count: toNum(headers.get('x-total-turn-count')),
+      session_limit: toNum(headers.get('x-session-limit')),
+      total_limit: toNum(headers.get('x-total-limit')),
+    };
+  };
+
+  const applyTurnMetaToSidebar = (meta?: Message['turnMeta']) => {
+    if (!meta) return;
+    if (typeof meta.total_turn_count === 'number') setTotalTurnCount(meta.total_turn_count);
+    if (typeof meta.total_limit === 'number') setTotalTurnLimit(meta.total_limit);
+  };
 
   const updateIsAtBottom = () => {
     const el = scrollContainerRef.current;
@@ -1408,7 +1945,7 @@ const App = () => {
       const { data, error } = await supabase
         .from('chats')
         // 仅加载列表元信息，避免首次进入就拉取所有对话 messages
-        .select('id, title, created_at')
+        .select('id, title, created_at, turn_count')
         // 关键：无论是否管理员账号，常规侧边栏历史记录都只显示自己的对话
         .eq('user_id', u.id)
         .order('created_at', { ascending: false });
@@ -1423,7 +1960,7 @@ const App = () => {
     }
   };
 
-  const saveCurrentSession = async (newMessages: Message[]) => {
+  const saveCurrentSession = async (newMessages: Message[], forceSessionId?: string) => {
     if (!user || !isUserEmailVerified(user)) return;
     
     // Determine title from first user message
@@ -1431,41 +1968,32 @@ const App = () => {
     const title = firstUserMsg ? (firstUserMsg.text.slice(0, 20) + (firstUserMsg.text.length > 20 ? '...' : '')) : 'New Chat';
 
     try {
-      if (currentSessionId) {
-        // Update existing
-        await supabase
-          .from('chats')
-          .update({ messages: newMessages, updated_at: new Date().toISOString() })
-          .eq('id', currentSessionId)
-          // 防御性过滤：确保只更新自己的会话
-          .eq('user_id', user.id);
-        
-        // Update local list (metadata only)
-        setSessions(prev => prev.map(s => s.id === currentSessionId ? { ...s, title } : s));
+      // 采用 upsert：确保新会话在第一次发送前就能稳定拥有 chat_id（便于轮数统计）
+      const sessionId = forceSessionId || currentSessionId || uuidv4();
 
-        // Keep cache in sync for the currently-open session
-        sessionMessagesCacheRef.current[currentSessionId] = newMessages;
-      } else {
-        // Create new
-        const { data, error } = await supabase
-          .from('chats')
-          .insert({ 
-            user_id: user.id, 
-            title, 
-            messages: newMessages 
-          })
-          .select()
-          .single();
-        
-        if (data) {
-          setCurrentSessionId(data.id);
-          // Insert into local list (metadata only)
-          setSessions(prev => [{ id: data.id, title: data.title, created_at: data.created_at }, ...prev]);
+      await supabase
+        .from('chats')
+        .upsert({
+          id: sessionId,
+          user_id: user.id,
+          title,
+          messages: newMessages,
+          updated_at: new Date().toISOString(),
+        });
 
-          // Seed cache for newly created session
-          sessionMessagesCacheRef.current[data.id] = newMessages;
-        }
+      if (!currentSessionId) {
+        setCurrentSessionId(sessionId);
       }
+        
+      // Update local list (metadata only)
+      setSessions(prev => {
+        const exists = prev.some(s => s.id === sessionId);
+        if (exists) return prev.map(s => s.id === sessionId ? { ...s, title } : s);
+        return [{ id: sessionId, title, created_at: new Date().toISOString(), turn_count: 0 }, ...prev];
+      });
+
+      // Keep cache in sync for the currently-open session
+      sessionMessagesCacheRef.current[sessionId] = newMessages;
     } catch (e) {
       console.error("Save error:", e);
     }
@@ -1517,21 +2045,29 @@ const App = () => {
       setMessageAnimationNonce((n) => n + 1);
     } catch (e: any) {
       console.error('Error fetching chat messages:', e);
-      alert('加载对话失败，请稍后重试');
+      pushToast({ type: 'error', title: '加载失败', message: '加载对话失败，请稍后重试' });
     } finally {
       setSessionMessagesLoading(false);
     }
   };
 
   const handleNewChat = () => {
-    setCurrentSessionId(null);
+    // 新会话预先生成 chat_id，保证从第一轮开始就能计数
+    setCurrentSessionId(uuidv4());
     initChat(false);
     setMessageAnimationNonce((n) => n + 1);
   };
 
   const handleDeleteSession = async (id: string) => {
     if (!user || !isUserEmailVerified(user)) return;
-    if (!window.confirm("确定要删除这条对话记录吗？")) return;
+    const ok = await confirmAsync({
+      title: '删除对话记录',
+      message: '确定要删除这条对话记录吗？\n\n此操作不可恢复。',
+      confirmText: '删除',
+      cancelText: '取消',
+      destructive: true,
+    });
+    if (!ok) return;
 
     try {
       const { error } = await supabase
@@ -1550,7 +2086,7 @@ const App = () => {
       }
     } catch (e) {
       console.error("Delete error:", e);
-      alert("删除失败，请稍后重试");
+      pushToast({ type: 'error', title: '删除失败', message: '删除失败，请稍后重试' });
     }
   };
 
@@ -1577,6 +2113,22 @@ const App = () => {
   // When a verified user becomes available (e.g. after refresh / verification), load sessions.
   useEffect(() => {
     if (!authLoading && user && isUserEmailVerified(user)) {
+
+      // Also load turn meta once so sidebar can show total count/limit before first chat.
+      (async () => {
+        try {
+          const { data, error } = await supabase
+            .rpc('get_turn_meta')
+            .maybeSingle();
+          if (error) throw error;
+          const meta = data as any;
+          if (meta && typeof meta.total_turn_count === 'number') setTotalTurnCount(meta.total_turn_count);
+          if (meta && typeof meta.total_limit === 'number') setTotalTurnLimit(meta.total_limit);
+        } catch (e: any) {
+          // Fail-closed: 不阻断 app，仅不显示
+          console.warn('[Turns] get_turn_meta failed:', e?.message || e);
+        }
+      })();
       fetchSessions(user);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1607,7 +2159,7 @@ const App = () => {
         const original = await blobToDataUrl(file);
         setImage(original);
       } catch {
-        alert("图片读取失败，请重试或更换图片");
+        pushToast({ type: 'error', title: '图片读取失败', message: '请重试或更换图片' });
       }
     } finally {
       setImageProcessing(false);
@@ -1640,6 +2192,10 @@ const App = () => {
     setImage(null);
     setLoading(true);
 
+    // 确保本轮有 chat_id（首次进入页面直接发送时，currentSessionId 可能为 null）
+    const sessionId = currentSessionId || uuidv4();
+    if (!currentSessionId) setCurrentSessionId(sessionId);
+
     const userMsg: Message = {
       id: Date.now().toString(),
       role: 'user',
@@ -1664,23 +2220,67 @@ const App = () => {
       }
     });
 
-    try {
-      const modelMsgId = (Date.now() + 1).toString();
-      setMessages(prev => [...prev, {
+    const modelMsgId = (Date.now() + 1).toString();
+    setMessages((prev) => [
+      ...prev,
+      {
         id: modelMsgId,
         role: 'model',
         text: '',
         timestamp: Date.now(),
-        isStreaming: true
-      }]);
+        isStreaming: true,
+      },
+    ]);
 
+    try {
       const response = await fetch('/api/chat', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ messages: updatedMessages })
+        headers: {
+          'Content-Type': 'application/json',
+          // 轮数统计/限制依赖用户 JWT（后端调用 consume_turn 需要 auth.uid）
+          ...(await (async () => {
+            const token = await getSupabaseAccessToken();
+            return token ? { Authorization: `Bearer ${token}` } : {};
+          })()),
+        },
+        body: JSON.stringify({ messages: updatedMessages, chat_id: sessionId })
       });
 
-      if (!response.ok || !response.body) throw new Error(response.statusText);
+      const turnMeta = parseTurnMetaFromHeaders(response.headers);
+      applyTurnMetaToSidebar(turnMeta);
+
+      // Attach meta to the in-progress assistant message ASAP
+      setMessages((prev) => prev.map((m) => (m.id === modelMsgId ? { ...m, turnMeta } : m)));
+
+      // 超限：后端返回 JSON
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        if (response.status === 429 && (data as any)?.error === 'TURN_LIMIT') {
+          const reason = (data as any)?.reason;
+          const base = reason === 'session_limit'
+            ? `本会话已达到对话次数上限（${(data as any)?.session_turn_count}/${formatLimit((data as any)?.session_limit)}）`
+            : `你已达到总对话次数上限（${(data as any)?.total_turn_count}/${formatLimit((data as any)?.total_limit)}）。`;
+
+          const hint = reason === 'session_limit'
+            ? '\n\n点击左侧「新对话」来继续对话吧！'
+            : '';
+
+          setMessages((prev) => prev.map((m) => (m.id === modelMsgId
+            ? { ...m, text: base + hint, isStreaming: false, status: undefined, turnMeta }
+            : m
+          )));
+          return;
+        }
+
+        const errMsg = (data as any)?.error || response.statusText || '请求失败';
+        setMessages((prev) => prev.map((m) => (m.id === modelMsgId
+          ? { ...m, text: `请求失败：${errMsg}`, isStreaming: false, status: undefined, turnMeta }
+          : m
+        )));
+        return;
+      }
+
+      if (!response.body) throw new Error(response.statusText);
 
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
@@ -1733,7 +2333,8 @@ const App = () => {
         text: finalText, 
         items: items, 
         isStreaming: false,
-        timestamp: Date.now()
+        timestamp: Date.now(),
+        turnMeta,
       };
 
       const finalMessages = [...updatedMessages, finalModelMsg];
@@ -1741,16 +2342,15 @@ const App = () => {
       setLoading(false); // Stop loading early to improve perceived performance
       
       // Save to DB in background
-      saveCurrentSession(finalMessages).catch(e => console.error("Auto-save failed:", e));
+      saveCurrentSession(finalMessages, sessionId).catch(e => console.error("Auto-save failed:", e));
 
     } catch (err: any) {
       console.error(err);
-      setMessages(prev => [...prev, {
-        id: Date.now().toString(),
-        role: 'model',
-        text: "出错了！你可以发送“重试”来再次尝试。",
-        timestamp: Date.now()
-      }]);
+      const msg = err?.message || "出错了！你可以发送“重试”来再次尝试。";
+      setMessages((prev) => prev.map((m) => (m.id === modelMsgId
+        ? { ...m, text: msg, isStreaming: false, status: undefined }
+        : m
+      )));
     } finally {
       setLoading(false);
     }
@@ -1771,6 +2371,8 @@ const App = () => {
         onNewChat={handleNewChat}
         onOpenAuth={() => setIsAuthOpen(true)}
         onDeleteSession={handleDeleteSession}
+        totalTurnCount={totalTurnCount}
+        totalTurnLimit={totalTurnLimit}
         reducedMotion={reducedMotion}
       />
 
@@ -1961,9 +2563,9 @@ const App = () => {
                   try {
                     const { error } = await supabase.auth.resend({ type: "signup", email: user.email });
                     if (error) throw error;
-                    alert("已重新发送验证邮件，请检查收件箱/垃圾箱");
+                    pushToast({ type: 'success', title: '已发送', message: '已重新发送验证邮件，请检查收件箱/垃圾箱' });
                   } catch (e: any) {
-                    alert(e?.message || "发送失败，请稍后重试");
+                    pushToast({ type: 'error', title: '发送失败', message: e?.message || '请稍后重试' });
                   }
                 }}
                 className="flex-1 bg-zinc-800 hover:bg-zinc-700 text-white font-bold py-2.5 rounded-lg transition-colors border border-zinc-700"
@@ -1997,8 +2599,37 @@ const App = () => {
 
       <Analytics />
 
+      <ToastViewport toasts={toasts} onDismiss={dismissToast} />
+
+      <ConfirmModal
+        open={confirmOpen}
+        options={confirmOptions}
+        onCancel={() => closeConfirm(false)}
+        onConfirm={() => closeConfirm(true)}
+      />
+
+      <UserLimitModal
+        open={limitModalOpen}
+        emailOrId={limitModalUser?.email || limitModalUser?.id || ''}
+        initial={limitModalDraft}
+        onCancel={() => closeLimitModal(null)}
+        onSave={(draft) => {
+          // validate number parsing inside modal will throw; catch here for toast
+          try {
+            closeLimitModal(draft);
+          } catch (e: any) {
+            pushToast({ type: 'error', title: '输入错误', message: e?.message || '请输入数字' });
+          }
+        }}
+      />
+
       {isAdmin && isAdminPanelOpen && (
-        <AdminPanel onClose={() => setIsAdminPanelOpen(false)} />
+        <AdminPanel
+          onClose={() => setIsAdminPanelOpen(false)}
+          confirm={confirmAsync}
+          notify={pushToast}
+          editUserLimits={editUserLimitsAsync}
+        />
       )}
 
       {/* styles moved to index.css */}
