@@ -1641,7 +1641,7 @@ const ChatMessageBubble = React.memo(({ message, largeLayout }: { message: Messa
           <div className={`w-9 h-9 rounded-2xl flex items-center justify-center shadow-lg border border-white/5 ${isUser ? 'bg-white/10' : 'bh-avatar-accent'}`}>
             {isUser ? <User size={18} /> : <Bot size={18} />}
           </div>
-          <span className="text-sm font-medium text-zinc-400">{isUser ? 'You' : 'Booth Hunter'}</span>
+          <span className="text-sm font-medium text-zinc-400">{isUser ? "你" : "璃璃"}</span>
         </div>
 
         {/* Bubble Content with Markdown */}
@@ -2171,14 +2171,14 @@ const App = () => {
   // --- Chat Logic ---
 
   const initChat = (keepMessages: boolean = false) => {
-      if (!keepMessages) {
-        setMessages([{
-          id: 'init',
-          role: 'model',
-          text: '你好！我是 Booth Hunter。\n\n我是由Oniya开发的Booth商品搜索助手，请告诉我你想要找的VRChat资产吧！',
-          timestamp: Date.now()
-        }]);
-      }
+    if (!keepMessages) {
+      setMessages([{
+        id: 'init',
+        role: 'model',
+        text: '你好喵！我是璃璃～\n\n我是由 Oniya 开发的 Booth 商品搜索助手，随时愿意为你提供帮助喔！请告诉我你想要找的 VRChat 资产吧！',
+        timestamp: Date.now()
+      }]);
+    }
   };
 
   useEffect(() => {
