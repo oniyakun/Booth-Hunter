@@ -108,6 +108,18 @@ function extractUserInstruction(messages: ClientMessage[]): { text: string; hasI
   return { text: "请在 Booth 上寻找匹配的 VRChat 资产。", hasImage: false };
 }
 
+function extractLastUserImage(messages: ClientMessage[]): string | undefined {
+  // 取最后一条带 image 的 user 消息（用于多模态）
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const m = messages[i];
+    if (m?.role !== "user") continue;
+    const img = (m.image || "").trim();
+    if (!img) continue;
+    return img;
+  }
+  return undefined;
+}
+
 function buildRecentConversationForAgent(messages: ClientMessage[], maxTurns: number): string {
   // 只取最近 maxTurns 条，避免 prompt 过长；并携带 items/image 等元信息，帮助理解上下文。
   const start = Math.max(0, messages.length - Math.max(1, maxTurns));
@@ -171,6 +183,7 @@ async function decideNextStepEndToEnd(params: {
   } = params;
 
   const { text: userInstruction, hasImage } = extractUserInstruction(messages);
+  const lastUserImage = extractLastUserImage(messages);
   const hint = extractLastKeywordAndPageHint(messages);
   const conversation = buildRecentConversationForAgent(messages, 18);
 
@@ -195,32 +208,44 @@ async function decideNextStepEndToEnd(params: {
     ].join(""),
   };
 
-  const user = {
-    role: "user",
-    content: JSON.stringify(
-      {
-        conversation,
-        user_instruction: userInstruction,
-        has_image: hasImage,
-        hint,
-        tried_keywords: triedKeywords,
-        exclude_ids: Array.from(excludeIds).slice(0, 200),
-        picked_ids: Array.from(pickedIds).slice(0, 200),
-        picked_count: pickedIds.size,
-        need_min: needMin,
-        max_pick: maxPick,
-        candidates_info: candidates
-          ? {
-              keyword_ja: candidatesKeywordJa,
-              page: candidatesPage,
-              candidates: compactCandidatesForAgent(candidates),
-            }
-          : null,
-      },
-      null,
-      0
-    ),
-  };
+  const userPayloadText = JSON.stringify(
+    {
+      conversation,
+      user_instruction: userInstruction,
+      has_image: hasImage,
+      hint,
+      tried_keywords: triedKeywords,
+      exclude_ids: Array.from(excludeIds).slice(0, 200),
+      picked_ids: Array.from(pickedIds).slice(0, 200),
+      picked_count: pickedIds.size,
+      need_min: needMin,
+      max_pick: maxPick,
+      candidates_info: candidates
+        ? {
+            keyword_ja: candidatesKeywordJa,
+            page: candidatesPage,
+            candidates: compactCandidatesForAgent(candidates),
+          }
+        : null,
+    },
+    null,
+    0
+  );
+
+  // 关键修复：之前只传了 has_image=true，但没有把图片内容传给模型，模型当然“看不到图片”。
+  // 这里在最后一条 user 消息包含 image 时，使用 OpenAI 兼容的多模态 content 格式传入。
+  const user: any = lastUserImage
+    ? {
+        role: "user",
+        content: [
+          { type: "text", text: userPayloadText },
+          { type: "image_url", image_url: { url: lastUserImage } },
+        ],
+      }
+    : {
+        role: "user",
+        content: userPayloadText,
+      };
 
   const res = await openai.chat.completions.create(
     {
@@ -522,6 +547,10 @@ export default async function handler(req: any) {
     }
 
     (async () => {
+      // 让 streamAssistantReply 等内部函数可以复用解析后的 clientMessages。
+      // 注意：之前把 clientMessages 定义在 try 块里，会导致外层函数引用时报 TS 错误（例如第 618 行）。
+      const clientMessages = messages as ClientMessage[];
+
       const write = async (text: string) => {
         if (stopped) return;
         await writer.write(encoder.encode(String(text)));
@@ -578,18 +607,29 @@ export default async function handler(req: any) {
             "\n5) 除了这个 JSON 代码块以外，不要输出其它代码块。",
           ].join(""),
         };
-        const user = {
-          role: "user",
-          content: [
-            `用户指令：${userInstruction}`,
-            `\n需求摘要：${needSummaryZh}`,
-            `\nkeyword_ja：${keywordJa}`,
-            `\npage：${page}`,
-            `\nfetched_count：${fetchedCount}`,
-            `\nhas_next_page：${hasNextPage ? "true" : "false"}`,
-            "\nitems_json（必须原样输出到你回复末尾的 json 代码块）：\n" + itemsJson,
-          ].join(""),
-        };
+        const userText = [
+          `用户指令：${userInstruction}`,
+          `\n需求摘要：${needSummaryZh}`,
+          `\nkeyword_ja：${keywordJa}`,
+          `\npage：${page}`,
+          `\nfetched_count：${fetchedCount}`,
+          `\nhas_next_page：${hasNextPage ? "true" : "false"}`,
+          "\nitems_json（必须原样输出到你回复末尾的 json 代码块）：\n" + itemsJson,
+        ].join("");
+
+        // 若本轮用户有上传图片，把图片也传给最终回复模型，让它能基于图片进行描述/检索建议。
+        // 注意：这里复用“最后一条带图片的 user 消息”，不重复携带历史图片，避免 token/体积暴涨。
+        const lastUserImage = extractLastUserImage(clientMessages);
+
+        const user: any = lastUserImage
+          ? {
+              role: "user",
+              content: [
+                { type: "text", text: userText },
+                { type: "image_url", image_url: { url: lastUserImage } },
+              ],
+            }
+          : { role: "user", content: userText };
 
         const response = await openai.chat.completions.create(
           {
@@ -622,7 +662,6 @@ export default async function handler(req: any) {
       };
 
       try {
-        const clientMessages = messages as ClientMessage[];
         const excludeIds = collectPreviouslyShownIds(clientMessages);
         const { text: userInstruction } = extractUserInstruction(clientMessages);
 
