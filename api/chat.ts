@@ -247,18 +247,60 @@ async function decideNextStepEndToEnd(params: {
         content: userPayloadText,
       };
 
-  const res = await openai.chat.completions.create(
-    {
-      model,
-      messages: [system as any, user as any] as any,
-      temperature: 0.2,
-    },
-    // OpenAI SDK: AbortSignal 应该放在 RequestOptions（第二个参数）里
-    signal ? ({ signal } as any) : undefined
-  );
+  let res;
+  let lastError;
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      // 强制 30s 超时控制，防止 API 挂起无响应，超时自动重试
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 30000);
+      
+      // 合并传入的 signal
+      if (signal) {
+        const onAbort = () => controller.abort();
+        signal.addEventListener('abort', onAbort);
+      }
 
-  const raw = (res.choices?.[0] as any)?.message?.content || "";
+      console.log(`[Agent] decideNextStep attempt ${attempt}/3...`);
+      res = await openai.chat.completions.create(
+        {
+          model,
+          messages: [system as any, user as any] as any,
+          temperature: 0.2,
+        },
+        { signal: controller.signal } as any
+      ).finally(() => clearTimeout(timeoutId));
+      
+      // 成功则跳出重试循环
+      break;
+    } catch (e: any) {
+      lastError = e;
+      const isTimeout = e?.name === 'AbortError' || e?.message?.includes('timeout');
+      console.warn(`[Agent] attempt ${attempt} failed: ${e?.message || e} (timeout=${isTimeout})`);
+      
+      if (signal?.aborted) {
+        throw e; // 用户主动中断，不重试
+      }
+      
+      if (attempt === 3) {
+        console.error("[Agent] decideNextStep final failure after 3 attempts.");
+        return { action: "reply", reply_zh: "抱歉喵，璃璃刚才非常努力地思考了，但大脑还是有点转不过来... 可能是网络不太通畅，咱们稍后再试好不好喵？" };
+      }
+      // 继续下一次尝试
+    }
+  }
+
+  const raw = (res?.choices?.[0] as any)?.message?.content || "";
+  console.log(`[Agent] RAW Response: ${raw}`);
+
   const parsed = safeJsonParse<any>(raw) || {};
+  console.log(`[Agent] PARSED Decision:`, JSON.stringify(parsed));
+
+  // 兜底校验：如果 parsed 为空或没有合法 action
+  if (!parsed || !parsed.action) {
+    console.warn("[Agent] Invalid decision JSON:", raw);
+    return { action: "reply", reply_zh: "璃璃刚才想得太投入了，结果没组织好语言喵... 请再给璃璃一次机会喔！" };
+  }
 
   if (parsed?.action === "reply") {
     const reply = typeof parsed?.reply_zh === "string" ? parsed.reply_zh.trim() : "";
@@ -638,7 +680,7 @@ export default async function handler(req: any) {
             temperature: 0.2,
             stream: true,
           },
-          // OpenAI SDK: AbortSignal 应该放在 RequestOptions（第二个参数）里
+          // 最终流式回复可以给长一点超时，或者依赖 global 请求超时
           requestSignal ? ({ signal: requestSignal } as any) : undefined
         );
 
@@ -725,20 +767,28 @@ export default async function handler(req: any) {
           if (stopped) return;
           await writeStatus(`抓取到 ${pageItems.length} 条，璃璃正在选择/决定下一步...`);
 
-          const decision = await decideNextStepEndToEnd({
-            openai,
-            model: modelName,
-            messages: clientMessages,
-            candidates: pageItems,
-            candidatesKeywordJa: currentKeywordJa,
-            candidatesPage: currentPage,
-            triedKeywords,
-            excludeIds: exclude,
-            pickedIds,
-            needMin: minNeed,
-            maxPick,
-            signal: requestSignal,
-          });
+          let decision: AgentDecision;
+          try {
+            console.log(`[Loop] Step ${step} starting decision...`);
+            decision = await decideNextStepEndToEnd({
+              openai,
+              model: modelName,
+              messages: clientMessages,
+              candidates: pageItems,
+              candidatesKeywordJa: currentKeywordJa,
+              candidatesPage: currentPage,
+              triedKeywords,
+              excludeIds: exclude,
+              pickedIds,
+              needMin: minNeed,
+              maxPick,
+              signal: requestSignal,
+            });
+            console.log(`[Loop] Step ${step} decision action: ${decision.action}`);
+          } catch (e: any) {
+            console.error(`[Agent] Loop Step ${step} Decision Error:`, e?.message || e);
+            break; 
+          }
 
           if (stopped) return;
 
@@ -758,12 +808,14 @@ export default async function handler(req: any) {
 
           if (decision.action === "select") {
             // 把 agent 选择映射成最终 items
+            let selectCountInThisStep = 0;
             for (const s of decision.selected) {
               const raw = pageItems.find((x) => x.id === s.id);
               if (!raw) continue;
               if (exclude.has(raw.id) || pickedIds.has(raw.id)) continue;
 
               pickedIds.add(raw.id);
+              selectCountInThisStep++;
               picked.push({
                 id: raw.id,
                 title: raw.title,
@@ -776,21 +828,33 @@ export default async function handler(req: any) {
               });
             }
 
-            if (picked.length >= minNeed || decision.done) break;
+            // 策略调整：如果模型返回 done，或者我们已经凑够了 minNeed，或者这一步什么都没选（防止原地打转），则跳出循环进入生成阶段。
+            if (picked.length >= minNeed || decision.done || (selectCountInThisStep === 0 && picked.length > 0)) break;
 
-            // 结果还不够：让 agent 再决定下一次 search（翻页/换关键词）
+            // 结果还不够，且还有重试空间：让 agent 再决定下一次 search（翻页/换关键词）
+            // 增加判断：如果已经到了最后一步循环，没必要再请求一次决策，直接 break 让后面生成回复。
+            if (step >= maxSteps - 1) break;
+
             await writeStatus("结果不足，璃璃正在决定下一步检索策略...");
-            const next = await decideNextStepEndToEnd({
-              openai,
-              model: modelName,
-              messages: clientMessages,
-              triedKeywords,
-              excludeIds: exclude,
-              pickedIds,
-              needMin: minNeed,
-              maxPick,
-              signal: requestSignal,
-            });
+            let next: AgentDecision;
+            try {
+              console.log(`[Loop] Step ${step} need more, deciding next search...`);
+              next = await decideNextStepEndToEnd({
+                openai,
+                model: modelName,
+                messages: clientMessages,
+                triedKeywords,
+                excludeIds: exclude,
+                pickedIds,
+                needMin: minNeed,
+                maxPick,
+                signal: requestSignal,
+              });
+              console.log(`[Loop] Step ${step} next search decision: ${next.action}`);
+            } catch (e: any) {
+              console.error(`[Agent] Loop Step ${step} Next Decision Error:`, e?.message || e);
+              break;
+            }
 
             if (stopped) return;
 
@@ -806,6 +870,8 @@ export default async function handler(req: any) {
               if (currentKeywordJa && !triedKeywords.includes(currentKeywordJa)) triedKeywords.push(currentKeywordJa);
               continue;
             }
+            // 如果 next.action 又是 select，可能会导致无限循环，这里强制下一次循环
+            continue;
           }
         }
 

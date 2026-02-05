@@ -2440,11 +2440,24 @@ const App = () => {
           } : m));
         }
 
-        // 将 buffer 中确定不是 marker 的部分刷入正文；保留尾部少量字符用于跨 chunk 的 marker 匹配
-        const keepTail = Math.max(0, STATUS_MARKER.length - 1);
-        if (streamBuffer.length > keepTail) {
-          accumulatedText += streamBuffer.slice(0, streamBuffer.length - keepTail);
-          streamBuffer = streamBuffer.slice(streamBuffer.length - keepTail);
+        // 只有当 buffer 中不包含 marker 的前缀时，才安全地将部分内容刷入正文。
+        // 如果 buffer 中可能包含 marker（即便是不完整的），我们应该等待下一个 chunk。
+        let firstPossibleMarkerIdx = -1;
+        for (let i = 0; i < streamBuffer.length; i++) {
+          if (STATUS_MARKER.startsWith(streamBuffer.slice(i))) {
+            firstPossibleMarkerIdx = i;
+            break;
+          }
+        }
+
+        if (firstPossibleMarkerIdx === -1) {
+          // buffer 里完全没有 marker 的影子，全刷进去
+          accumulatedText += streamBuffer;
+          streamBuffer = "";
+        } else if (firstPossibleMarkerIdx > 0) {
+          // 刷入直到第一个可能出现 marker 的位置
+          accumulatedText += streamBuffer.slice(0, firstPossibleMarkerIdx);
+          streamBuffer = streamBuffer.slice(firstPossibleMarkerIdx);
         }
 
         const maybeJsonStreaming = (accumulatedText + streamBuffer).toLowerCase().includes("```json");
