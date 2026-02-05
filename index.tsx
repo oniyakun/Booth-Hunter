@@ -39,7 +39,7 @@ type ConfirmOptions = {
 
 type UserLimitDraft = {
   session_turn_limit_override: number | null;
-  total_turn_limit_override: number | null;
+  daily_turn_limit_override: number | null;
 };
 
 const toastAccent = (t: ToastType) => {
@@ -160,13 +160,13 @@ const UserLimitModal = ({
   onSave: (draft: UserLimitDraft) => void;
 }) => {
   const [sessionStr, setSessionStr] = useState<string>(initial.session_turn_limit_override == null ? '' : String(initial.session_turn_limit_override));
-  const [totalStr, setTotalStr] = useState<string>(initial.total_turn_limit_override == null ? '' : String(initial.total_turn_limit_override));
+  const [dailyStr, setDailyStr] = useState<string>(initial.daily_turn_limit_override == null ? '' : String(initial.daily_turn_limit_override));
 
   useEffect(() => {
     if (!open) return;
     setSessionStr(initial.session_turn_limit_override == null ? '' : String(initial.session_turn_limit_override));
-    setTotalStr(initial.total_turn_limit_override == null ? '' : String(initial.total_turn_limit_override));
-  }, [open, initial.session_turn_limit_override, initial.total_turn_limit_override]);
+    setDailyStr(initial.daily_turn_limit_override == null ? '' : String(initial.daily_turn_limit_override));
+  }, [open, initial.session_turn_limit_override, initial.daily_turn_limit_override]);
 
   const parseOptionalInt = (s: string): number | null => {
     const t = s.trim();
@@ -184,7 +184,7 @@ const UserLimitModal = ({
 
       <div className="space-y-3">
         <div>
-          <label className="block text-xs font-medium text-zinc-400 mb-1">单会话轮数上限</label>
+          <label className="block text-xs font-medium text-zinc-400 mb-1">单会话对话次数上限</label>
           <input
             value={sessionStr}
             onChange={(e) => setSessionStr(e.target.value)}
@@ -194,10 +194,10 @@ const UserLimitModal = ({
           />
         </div>
         <div>
-          <label className="block text-xs font-medium text-zinc-400 mb-1">总轮数上限</label>
+          <label className="block text-xs font-medium text-zinc-400 mb-1">单日对话次数上限</label>
           <input
-            value={totalStr}
-            onChange={(e) => setTotalStr(e.target.value)}
+            value={dailyStr}
+            onChange={(e) => setDailyStr(e.target.value)}
             placeholder="留空=默认，0=无限制"
             className="w-full rounded-xl px-4 py-3 text-white focus:outline-none bh-input"
             inputMode="numeric"
@@ -218,7 +218,7 @@ const UserLimitModal = ({
             try {
               onSave({
                 session_turn_limit_override: parseOptionalInt(sessionStr),
-                total_turn_limit_override: parseOptionalInt(totalStr),
+                daily_turn_limit_override: parseOptionalInt(dailyStr),
               });
             } catch (e: any) {
               // 交给外部 toast
@@ -352,9 +352,9 @@ interface Message {
   isJsonStreaming?: boolean;
   turnMeta?: {
     session_turn_count?: number;
-    total_turn_count?: number;
+    daily_turn_count?: number;
     session_limit?: number;
-    total_limit?: number;
+    daily_limit?: number;
   };
 }
 
@@ -377,8 +377,9 @@ interface Profile {
   is_admin?: boolean;
   created_at?: string;
   total_turn_count?: number;
+  daily_turn_count?: number;
   session_turn_limit_override?: number | null;
-  total_turn_limit_override?: number | null;
+  daily_turn_limit_override?: number | null;
 }
 
 interface AdminChatMeta {
@@ -392,7 +393,7 @@ interface AdminChatMeta {
 
 interface AdminSettings {
   default_session_turn_limit: number;
-  default_total_turn_limit: number;
+  default_daily_turn_limit: number;
 }
 
 type AdminChatDetail = AdminChatMeta & { messages: Message[] | null };
@@ -610,7 +611,7 @@ const AdminPanel = ({
         },
         body: JSON.stringify({
           default_session_turn_limit: settings.default_session_turn_limit,
-          default_total_turn_limit: settings.default_total_turn_limit,
+          default_daily_turn_limit: settings.default_daily_turn_limit,
         }),
       });
 
@@ -841,7 +842,7 @@ const AdminPanel = ({
                       const v = e.target.value;
                       setSettings((s) => ({
                         default_session_turn_limit: v === '' ? 0 : Number(v),
-                        default_total_turn_limit: s?.default_total_turn_limit ?? 0,
+                        default_daily_turn_limit: s?.default_daily_turn_limit ?? 0,
                       }));
                     }}
                     placeholder="单会话"
@@ -849,15 +850,15 @@ const AdminPanel = ({
                     inputMode="numeric"
                   />
                   <input
-                    value={settings?.default_total_turn_limit ?? ''}
+                    value={settings?.default_daily_turn_limit ?? ''}
                     onChange={(e) => {
                       const v = e.target.value;
                       setSettings((s) => ({
                         default_session_turn_limit: s?.default_session_turn_limit ?? 0,
-                        default_total_turn_limit: v === '' ? 0 : Number(v),
+                        default_daily_turn_limit: v === '' ? 0 : Number(v),
                       }));
                     }}
-                    placeholder="总轮数"
+                    placeholder="今日次数"
                     className="w-full rounded-xl px-3 py-2 text-white focus:outline-none bh-input text-sm"
                     inputMode="numeric"
                   />
@@ -923,12 +924,14 @@ const AdminPanel = ({
                         <div className="text-sm text-white font-medium truncate">{u.email || u.id}</div>
                         <div className="text-[10px] text-zinc-500 font-mono truncate mt-1">{u.id}</div>
                         <div className="text-[10px] text-zinc-500 mt-1">
-                          总轮数：<span className="text-zinc-300">{u.total_turn_count ?? 0}</span>
+                          今日对话次数：<span className="text-zinc-300">{u.daily_turn_count ?? 0}</span>
+                          <span className="mx-2 text-zinc-600">|</span>
+                          历史总数：<span className="text-zinc-300">{u.total_turn_count ?? 0}</span>
                         </div>
                         <div className="text-[10px] text-zinc-500 mt-1">
                           覆盖限制：
                           <span className="text-zinc-300">
-                            会话 {u.session_turn_limit_override ?? '默认'} / 总 {u.total_turn_limit_override ?? '默认'}
+                            会话 {u.session_turn_limit_override ?? '默认'} / 今日 {u.daily_turn_limit_override ?? '默认'}
                           </span>
                         </div>
                       </div>
@@ -1044,7 +1047,7 @@ const AdminPanel = ({
                       </div>
                       <div className="text-[10px] text-zinc-500 font-mono truncate mt-1">chat: {c.id}</div>
                       <div className="text-[10px] text-zinc-500 font-mono truncate mt-1">user: {c.user_id}</div>
-                      <div className="text-[10px] text-zinc-500 mt-1">轮数：{c.turn_count ?? 0}</div>
+                      <div className="text-[10px] text-zinc-500 mt-1">对话次数：{c.turn_count ?? 0}</div>
                       <div className="text-[10px] text-zinc-600 mt-1">{new Date(c.created_at).toLocaleString()}</div>
                     </div>
                   ))
@@ -1416,7 +1419,7 @@ const Sidebar = ({
                         <span className="text-sm text-white truncate font-medium">{user.email?.split('@')[0]}</span>
                         <span className="text-[10px] text-zinc-500 truncate">{user.email}</span>
                         <span className="text-[10px] text-zinc-600 truncate mt-0.5">
-                          总轮数 {totalTurnCount ?? '—'} / {formatLimit(totalTurnLimit)}
+                          今日对话次数 {totalTurnCount ?? '—'} / {formatLimit(totalTurnLimit)}
                         </span>
                       </div>
                    </div>
@@ -1806,8 +1809,8 @@ const App = () => {
   const [isAdminPanelOpen, setIsAdminPanelOpen] = useState(false);
 
   // Latest turn meta (for sidebar display)
-  const [totalTurnCount, setTotalTurnCount] = useState<number | undefined>(undefined);
-  const [totalTurnLimit, setTotalTurnLimit] = useState<number | undefined>(undefined);
+  const [dailyTurnCount, setDailyTurnCount] = useState<number | undefined>(undefined);
+  const [dailyTurnLimit, setDailyTurnLimit] = useState<number | undefined>(undefined);
 
   // Toasts
   const [toasts, setToasts] = useState<Toast[]>([]);
@@ -1852,14 +1855,14 @@ const App = () => {
   const [limitModalUser, setLimitModalUser] = useState<Profile | null>(null);
   const [limitModalDraft, setLimitModalDraft] = useState<UserLimitDraft>({
     session_turn_limit_override: null,
-    total_turn_limit_override: null,
+    daily_turn_limit_override: null,
   });
   const limitResolverRef = useRef<((v: UserLimitDraft | null) => void) | null>(null);
   const editUserLimitsAsync = (u: Profile): Promise<UserLimitDraft | null> => {
     setLimitModalUser(u);
     setLimitModalDraft({
       session_turn_limit_override: u.session_turn_limit_override ?? null,
-      total_turn_limit_override: u.total_turn_limit_override ?? null,
+      daily_turn_limit_override: u.daily_turn_limit_override ?? null,
     });
     setLimitModalOpen(true);
     return new Promise<UserLimitDraft | null>((resolve) => {
@@ -1895,16 +1898,16 @@ const App = () => {
     };
     return {
       session_turn_count: toNum(headers.get('x-session-turn-count')),
-      total_turn_count: toNum(headers.get('x-total-turn-count')),
+      daily_turn_count: toNum(headers.get('x-daily-turn-count')),
       session_limit: toNum(headers.get('x-session-limit')),
-      total_limit: toNum(headers.get('x-total-limit')),
+      daily_limit: toNum(headers.get('x-daily-limit')),
     };
   };
 
   const applyTurnMetaToSidebar = (meta?: Message['turnMeta']) => {
     if (!meta) return;
-    if (typeof meta.total_turn_count === 'number') setTotalTurnCount(meta.total_turn_count);
-    if (typeof meta.total_limit === 'number') setTotalTurnLimit(meta.total_limit);
+    if (typeof meta.daily_turn_count === 'number') setDailyTurnCount(meta.daily_turn_count);
+    if (typeof meta.daily_limit === 'number') setDailyTurnLimit(meta.daily_limit);
   };
 
   const updateIsAtBottom = () => {
@@ -2197,8 +2200,8 @@ const App = () => {
             .maybeSingle();
           if (error) throw error;
           const meta = data as any;
-          if (meta && typeof meta.total_turn_count === 'number') setTotalTurnCount(meta.total_turn_count);
-          if (meta && typeof meta.total_limit === 'number') setTotalTurnLimit(meta.total_limit);
+          if (meta && typeof meta.daily_turn_count === 'number') setDailyTurnCount(meta.daily_turn_count);
+          if (meta && typeof meta.daily_limit === 'number') setDailyTurnLimit(meta.daily_limit);
         } catch (e: any) {
           // Fail-closed: 不阻断 app，仅不显示
           console.warn('[Turns] get_turn_meta failed:', e?.message || e);
@@ -2360,7 +2363,7 @@ const App = () => {
           const reason = (data as any)?.reason;
           const base = reason === 'session_limit'
             ? `本会话已达到对话次数上限（${(data as any)?.session_turn_count}/${formatLimit((data as any)?.session_limit)}）`
-            : `你已达到总对话次数上限（${(data as any)?.total_turn_count}/${formatLimit((data as any)?.total_limit)}）。`;
+            : `你已达到今日对话次数上限（${(data as any)?.daily_turn_count}/${formatLimit((data as any)?.daily_limit)}）。`;
 
           const hint = reason === 'session_limit'
             ? '\n\n点击左侧「新对话」来继续对话吧！'
@@ -2525,8 +2528,8 @@ const App = () => {
         onNewChat={handleNewChat}
         onOpenAuth={() => setIsAuthOpen(true)}
         onDeleteSession={handleDeleteSession}
-        totalTurnCount={totalTurnCount}
-        totalTurnLimit={totalTurnLimit}
+        totalTurnCount={dailyTurnCount}
+        totalTurnLimit={dailyTurnLimit}
         reducedMotion={reducedMotion}
       />
 

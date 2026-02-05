@@ -14,16 +14,24 @@
 --
 -- 执行位置：Supabase Dashboard -> SQL Editor
 
+-- ============ 0) 清理旧函数（必须执行，否则无法修改返回类型） ============
+drop function if exists public.consume_turn(uuid);
+drop function if exists public.get_turn_meta();
+
 -- ============ 1) profiles 表 ============
 
 create table if not exists public.profiles (
   id uuid primary key references auth.users(id) on delete cascade,
   email text,
   is_admin boolean not null default false,
-  -- 对话轮数统计（跨所有会话的累计）
-  total_turn_count bigint not null default 0,
+  -- 对话次数统计（今日，按 UTC+8 0 点重置）
+  daily_turn_count bigint not null default 0,
+  daily_turn_date date not null default (timezone('Asia/Shanghai', now()))::date,
   -- 单独限制（优先级高于全局默认；NULL 表示使用全局默认）
   session_turn_limit_override integer,
+  daily_turn_limit_override bigint,
+  -- legacy: 历史累计字段（已废弃，不再用于限额）；保留以兼容旧数据/迁移。
+  total_turn_count bigint not null default 0,
   total_turn_limit_override bigint,
   created_at timestamptz not null default timezone('utc'::text, now()),
   updated_at timestamptz not null default timezone('utc'::text, now())
@@ -47,6 +55,11 @@ alter table public.profiles add column if not exists total_turn_count bigint not
 alter table public.profiles add column if not exists session_turn_limit_override integer;
 alter table public.profiles add column if not exists total_turn_limit_override bigint;
 
+-- 新版：每日对话次数（UTC+8）
+alter table public.profiles add column if not exists daily_turn_count bigint not null default 0;
+alter table public.profiles add column if not exists daily_turn_date date not null default (timezone('Asia/Shanghai', now()))::date;
+alter table public.profiles add column if not exists daily_turn_limit_override bigint;
+
 -- ============ 2.1) 全局默认限制（管理员可改） ============
 
 create table if not exists public.app_settings (
@@ -65,7 +78,10 @@ execute function public.set_updated_at();
 insert into public.app_settings (key, value_bigint)
 values
   ('default_session_turn_limit', 50),
-  ('default_total_turn_limit', 500)
+  -- legacy: 历史累计限制（已废弃）
+  ('default_total_turn_limit', 500),
+  -- 新版：每日对话次数限制（UTC+8 0 点重置）
+  ('default_daily_turn_limit', 200)
 on conflict (key) do nothing;
 
 drop trigger if exists profiles_set_updated_at on public.profiles;
@@ -140,9 +156,9 @@ returns table (
   allowed boolean,
   reason text,
   session_turn_count integer,
-  total_turn_count bigint,
+  daily_turn_count bigint,
   session_limit integer,
-  total_limit bigint
+  daily_limit bigint
 )
 language plpgsql
 security definer
@@ -151,9 +167,10 @@ as $$
 declare
   v_uid uuid;
   v_session_limit integer;
-  v_total_limit bigint;
+  v_daily_limit bigint;
   v_profile public.profiles%rowtype;
   v_chat record;
+  v_today date;
 begin
   v_uid := auth.uid();
   if v_uid is null then
@@ -161,17 +178,20 @@ begin
     return;
   end if;
 
+  -- 今日日期（UTC+8 / Asia/Shanghai）
+  v_today := (timezone('Asia/Shanghai', now()))::date;
+
   -- 读取全局默认限制
   select value_bigint::integer into v_session_limit
   from public.app_settings
   where key = 'default_session_turn_limit';
 
-  select value_bigint into v_total_limit
+  select value_bigint into v_daily_limit
   from public.app_settings
-  where key = 'default_total_turn_limit';
+  where key = 'default_daily_turn_limit';
 
   if v_session_limit is null then v_session_limit := 50; end if;
-  if v_total_limit is null then v_total_limit := 500; end if;
+  if v_daily_limit is null then v_daily_limit := 200; end if;
 
   -- 锁定/读取 profile
   select * into v_profile
@@ -193,7 +213,21 @@ begin
 
   -- 应用用户覆盖限制（NULL 表示用默认）
   v_session_limit := coalesce(v_profile.session_turn_limit_override, v_session_limit);
-  v_total_limit := coalesce(v_profile.total_turn_limit_override, v_total_limit);
+  v_daily_limit := coalesce(v_profile.daily_turn_limit_override, v_daily_limit);
+
+  -- 若跨日：重置 daily_turn_count
+  if v_profile.daily_turn_date is distinct from v_today then
+    update public.profiles p
+    set daily_turn_count = 0,
+        daily_turn_date = v_today,
+        updated_at = timezone('utc'::text, now())
+    where p.id = v_uid;
+
+    select * into v_profile
+    from public.profiles
+    where id = v_uid
+    for update;
+  end if;
 
   -- 锁定/读取 chat，如果不存在则创建占位行
   select id, user_id, turn_count
@@ -215,18 +249,18 @@ begin
   end if;
 
   if v_chat.user_id <> v_uid then
-    return query select false, 'forbidden', v_chat.turn_count, v_profile.total_turn_count, v_session_limit, v_total_limit;
+    return query select false, 'forbidden', v_chat.turn_count, v_profile.daily_turn_count, v_session_limit, v_daily_limit;
     return;
   end if;
 
   -- 检查限额（<=0 视为无限制）
   if v_session_limit > 0 and (v_chat.turn_count + 1) > v_session_limit then
-    return query select false, 'session_limit', v_chat.turn_count, v_profile.total_turn_count, v_session_limit, v_total_limit;
+    return query select false, 'session_limit', v_chat.turn_count, v_profile.daily_turn_count, v_session_limit, v_daily_limit;
     return;
   end if;
 
-  if v_total_limit > 0 and (v_profile.total_turn_count + 1) > v_total_limit then
-    return query select false, 'total_limit', v_chat.turn_count, v_profile.total_turn_count, v_session_limit, v_total_limit;
+  if v_daily_limit > 0 and (v_profile.daily_turn_count + 1) > v_daily_limit then
+    return query select false, 'daily_limit', v_chat.turn_count, v_profile.daily_turn_count, v_session_limit, v_daily_limit;
     return;
   end if;
 
@@ -235,9 +269,10 @@ begin
       updated_at = timezone('utc'::text, now())
   where id = p_chat_id;
 
-  -- 注意：total_turn_count 同时也是返回列名（OUT 参数变量），这里必须给表起别名避免歧义
   update public.profiles p
-  set total_turn_count = p.total_turn_count + 1,
+  set daily_turn_count = p.daily_turn_count + 1,
+      total_turn_count = p.total_turn_count + 1,
+      daily_turn_date = v_today,
       updated_at = timezone('utc'::text, now())
   where p.id = v_uid;
 
@@ -246,14 +281,14 @@ begin
   from public.chats c
   where c.id = p_chat_id;
 
-  select p.total_turn_count into total_turn_count
+  select p.daily_turn_count into daily_turn_count
   from public.profiles p
   where p.id = v_uid;
 
   allowed := true;
   reason := null;
   session_limit := v_session_limit;
-  total_limit := v_total_limit;
+  daily_limit := v_daily_limit;
   return next;
 end;
 $$;
@@ -270,9 +305,9 @@ grant execute on function public.consume_turn(uuid) to authenticated;
 
 create or replace function public.get_turn_meta()
 returns table (
-  total_turn_count bigint,
+  daily_turn_count bigint,
   session_limit integer,
-  total_limit bigint
+  daily_limit bigint
 )
 language plpgsql
 security definer
@@ -281,8 +316,9 @@ as $$
 declare
   v_uid uuid;
   v_session_limit integer;
-  v_total_limit bigint;
+  v_daily_limit bigint;
   v_profile public.profiles%rowtype;
+  v_today date;
 begin
   v_uid := auth.uid();
   if v_uid is null then
@@ -290,17 +326,19 @@ begin
     return;
   end if;
 
+  v_today := (timezone('Asia/Shanghai', now()))::date;
+
   -- 读取全局默认限制
   select value_bigint::integer into v_session_limit
   from public.app_settings
   where key = 'default_session_turn_limit';
 
-  select value_bigint into v_total_limit
+  select value_bigint into v_daily_limit
   from public.app_settings
-  where key = 'default_total_turn_limit';
+  where key = 'default_daily_turn_limit';
 
   if v_session_limit is null then v_session_limit := 50; end if;
-  if v_total_limit is null then v_total_limit := 500; end if;
+  if v_daily_limit is null then v_daily_limit := 200; end if;
 
   select * into v_profile
   from public.profiles
@@ -318,9 +356,20 @@ begin
 
   -- 应用用户覆盖限制（NULL 表示用默认）
   v_session_limit := coalesce(v_profile.session_turn_limit_override, v_session_limit);
-  v_total_limit := coalesce(v_profile.total_turn_limit_override, v_total_limit);
+  v_daily_limit := coalesce(v_profile.daily_turn_limit_override, v_daily_limit);
 
-  return query select v_profile.total_turn_count, v_session_limit, v_total_limit;
+  -- 跨日：返回前先把计数视为 0，并顺带落库重置，避免前端看到“昨天的今日次数”。
+  if v_profile.daily_turn_date is distinct from v_today then
+    update public.profiles p
+    set daily_turn_count = 0,
+        daily_turn_date = v_today,
+        updated_at = timezone('utc'::text, now())
+    where p.id = v_uid;
+    v_profile.daily_turn_count := 0;
+    v_profile.daily_turn_date := v_today;
+  end if;
+
+  return query select v_profile.daily_turn_count, v_session_limit, v_daily_limit;
 end;
 $$;
 
@@ -422,6 +471,7 @@ using (auth.uid() = user_id);
 
 -- drop policy if exists "profiles: admin read all" on public.profiles;
 -- drop policy if exists "chats: admin read all" on public.chats;
+
 
 
 

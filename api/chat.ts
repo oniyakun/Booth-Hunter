@@ -425,9 +425,9 @@ interface ConsumeTurnResponse {
   allowed: boolean;
   reason?: string;
   session_turn_count?: number;
-  total_turn_count?: number;
+  daily_turn_count?: number;
   session_limit?: number;
-  total_limit?: number;
+  daily_limit?: number;
 }
 
 function withJsonHeaders(status: number, body: any): Response {
@@ -441,9 +441,9 @@ function turnMetaHeaders(meta?: ConsumeTurnResponse): Record<string, string> {
   if (!meta) return {};
   const h: Record<string, string> = {};
   if (typeof meta.session_turn_count === 'number') h['x-session-turn-count'] = String(meta.session_turn_count);
-  if (typeof meta.total_turn_count === 'number') h['x-total-turn-count'] = String(meta.total_turn_count);
+  if (typeof meta.daily_turn_count === 'number') h['x-daily-turn-count'] = String(meta.daily_turn_count);
   if (typeof meta.session_limit === 'number') h['x-session-limit'] = String(meta.session_limit);
-  if (typeof meta.total_limit === 'number') h['x-total-limit'] = String(meta.total_limit);
+  if (typeof meta.daily_limit === 'number') h['x-daily-limit'] = String(meta.daily_limit);
   return h;
 }
 
@@ -508,9 +508,9 @@ export default async function handler(req: any) {
             error: 'TURN_LIMIT',
             reason: consumeData?.reason,
             session_turn_count: consumeData?.session_turn_count,
-            total_turn_count: consumeData?.total_turn_count,
+            daily_turn_count: consumeData?.daily_turn_count,
             session_limit: consumeData?.session_limit,
-            total_limit: consumeData?.total_limit,
+            daily_limit: consumeData?.daily_limit,
           }),
           { status: 429, headers: { 'content-type': 'application/json', ...turnMetaHeaders(consumeData) } }
         );

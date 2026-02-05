@@ -62,7 +62,7 @@ export default async function handler(req: Request): Promise<Response> {
     if (!profile?.is_admin) return json(403, { error: 'Forbidden' });
 
     // PATCH /api/admin/users?id=<uuid>
-    // body: { session_turn_limit_override?: number|null, total_turn_limit_override?: number|null }
+    // body: { session_turn_limit_override?: number|null, daily_turn_limit_override?: number|null }
     if (req.method === 'PATCH') {
       const url = new URL(req.url);
       const targetId = url.searchParams.get('id');
@@ -71,13 +71,13 @@ export default async function handler(req: Request): Promise<Response> {
       const body = await req.json().catch(() => ({}));
       const patch: any = {};
       if ('session_turn_limit_override' in body) patch.session_turn_limit_override = body.session_turn_limit_override;
-      if ('total_turn_limit_override' in body) patch.total_turn_limit_override = body.total_turn_limit_override;
+      if ('daily_turn_limit_override' in body) patch.daily_turn_limit_override = body.daily_turn_limit_override;
 
       const { data, error } = await admin
         .from('profiles')
         .update(patch)
         .eq('id', targetId)
-        .select('id, email, is_admin, created_at, total_turn_count, session_turn_limit_override, total_turn_limit_override')
+        .select('id, email, is_admin, created_at, total_turn_count, daily_turn_count, session_turn_limit_override, daily_turn_limit_override')
         .maybeSingle();
 
       if (error) return json(500, { error: error.message });
@@ -104,7 +104,7 @@ export default async function handler(req: Request): Promise<Response> {
 
     const { data, error } = await admin
       .from('profiles')
-      .select('id, email, is_admin, created_at, total_turn_count, session_turn_limit_override, total_turn_limit_override')
+      .select('id, email, is_admin, created_at, total_turn_count, daily_turn_count, session_turn_limit_override, daily_turn_limit_override')
       .order('created_at', { ascending: false });
 
     if (error) return json(500, { error: error.message });
