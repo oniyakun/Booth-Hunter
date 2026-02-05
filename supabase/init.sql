@@ -17,6 +17,7 @@
 -- ============ 0) 清理旧函数（必须执行，否则无法修改返回类型） ============
 drop function if exists public.consume_turn(uuid);
 drop function if exists public.get_turn_meta();
+drop function if exists public.consume_guest_turn(text);
 
 -- ============ 1) profiles 表 ============
 
@@ -376,10 +377,86 @@ $$;
 revoke all on function public.get_turn_meta() from public;
 grant execute on function public.get_turn_meta() to authenticated;
 
+
+-- ============ 4.7) 游客模式支持 ============
+
+-- 游客记录表
+create table if not exists public.guest_usage (
+  visitor_id text primary key,
+  turn_count integer not null default 0,
+  last_used_at timestamptz not null default timezone('utc'::text, now())
+);
+
+-- 游客消耗次数函数
+-- 参数：p_visitor_id
+-- 返回：allowed, reason, turn_count
+create or replace function public.consume_guest_turn(p_visitor_id text)
+returns table (
+  allowed boolean,
+  reason text,
+  current_count integer,
+  limit_count integer
+)
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_guest public.guest_usage%rowtype;
+  v_limit integer := 3; -- 硬编码游客限制 3 次
+begin
+  if p_visitor_id is null or length(p_visitor_id) < 1 then
+    return query select false, 'invalid_visitor_id', 0, v_limit;
+    return;
+  end if;
+
+  -- 锁定/读取
+  select * into v_guest
+  from public.guest_usage
+  where visitor_id = p_visitor_id
+  for update;
+
+  if not found then
+    insert into public.guest_usage (visitor_id, turn_count)
+    values (p_visitor_id, 0)
+    returning * into v_guest;
+  end if;
+
+  if v_guest.turn_count >= v_limit then
+    return query select false, 'limit_reached', v_guest.turn_count, v_limit;
+    return;
+  end if;
+
+  update public.guest_usage
+  set turn_count = turn_count + 1,
+      last_used_at = timezone('utc'::text, now())
+  where visitor_id = p_visitor_id;
+
+  return query select true, null, v_guest.turn_count + 1, v_limit;
+end;
+$$;
+
+-- 允许匿名/公开调用（通过 API Service Role 调用更安全，但这里开放给 API 调用）
+-- 实际上由于 API 使用 Service Key 或 Anon Key，我们需要赋予 anon 权限，或者仅由 Service Role 调用。
+-- 为方便调试，先赋予 public 权限，但在 API 中我们最好通过 Service Role 客户端来调用，
+-- 或者如果使用 Anon Key 调用，则必须 Grant。
+grant execute on function public.consume_guest_turn(text) to anon;
+grant execute on function public.consume_guest_turn(text) to authenticated;
+grant execute on function public.consume_guest_turn(text) to service_role;
+
 -- ============ 5) RLS ============
 
 alter table public.profiles enable row level security;
 alter table public.chats enable row level security;
+alter table public.guest_usage enable row level security;
+
+-- guest_usage: 不允许前端直接读写，必须通过 RPC
+drop policy if exists "guest_usage: no access" on public.guest_usage;
+create policy "guest_usage: no access"
+on public.guest_usage
+for all
+using (false)
+with check (false);
 
 -- app_settings 仅允许服务端（service_role）访问，不开放给客户端。
 alter table public.app_settings enable row level security;
@@ -425,57 +502,3 @@ using (auth.uid() = user_id);
 
 -- ============ 6) 管理员设置（手动） ============
 -- update public.profiles set is_admin = true where email = 'your_admin@email.com';
-
--- ==========================================================
--- 可选段落（按需执行）
--- ==========================================================
-
--- ==========================================================
--- A) 回填历史用户到 profiles（幂等）
---    适用：你之前已经有 auth.users / chats，现在新增 profiles/is_admin。
--- ==========================================================
-
--- insert into public.profiles (id, email, created_at, updated_at)
--- select
---   u.id,
---   u.email,
---   timezone('utc'::text, now()),
---   timezone('utc'::text, now())
--- from auth.users u
--- on conflict (id) do update
---   set email = excluded.email,
---       updated_at = timezone('utc'::text, now());
-
--- ==========================================================
--- B) 检查 chats 孤儿数据（chats.user_id 不存在于 auth.users）
--- ==========================================================
-
--- select
---   c.id as chat_id,
---   c.user_id,
---   c.title,
---   c.created_at
--- from public.chats c
--- left join auth.users u on u.id = c.user_id
--- where u.id is null
--- order by c.created_at desc
--- limit 200;
-
--- （可选）删除孤儿 chats：
--- delete from public.chats c
--- where not exists (select 1 from auth.users u where u.id = c.user_id);
-
--- ==========================================================
--- C) 收口旧版“admin read all” RLS policy（如果你历史上创建过）
--- ==========================================================
-
--- drop policy if exists "profiles: admin read all" on public.profiles;
--- drop policy if exists "chats: admin read all" on public.chats;
-
-
-
-
-
-
-
-

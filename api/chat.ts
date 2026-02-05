@@ -518,8 +518,12 @@ export default async function handler(req: any) {
       return withJsonHeaders(400, { error: 'Missing chat_id' });
     }
 
-    if (!token) {
-      return withJsonHeaders(401, { error: 'Missing bearer token' });
+    const visitorId = (req?.headers && typeof req.headers.get === 'function')
+      ? (req.headers.get('x-visitor-id') || '')
+      : '';
+
+    if (!token && !visitorId) {
+      return withJsonHeaders(401, { error: 'Missing authentication' });
     }
 
     if (!supabaseUrl || !supabaseAnonKey) {
@@ -533,33 +537,69 @@ export default async function handler(req: any) {
     try {
       const supabase = createClient(supabaseUrl, supabaseAnonKey, {
         auth: { persistSession: false, autoRefreshToken: false },
-        global: { headers: { Authorization: `Bearer ${token}` } },
+        global: token ? { headers: { Authorization: `Bearer ${token}` } } : undefined,
       });
 
-      const { data, error } = await supabase.rpc('consume_turn', { p_chat_id: chat_id }).single();
-      if (error) {
-        console.error('[Turns] consume_turn error:', error);
-        return withJsonHeaders(500, { error: error.message });
-      }
+      if (token) {
+        // 已登录用户逻辑
+        const { data, error } = await supabase.rpc('consume_turn', { p_chat_id: chat_id }).single();
+        if (error) {
+          console.error('[Turns] consume_turn error:', error);
+          return withJsonHeaders(500, { error: error.message });
+        }
 
-      const consumeData = data as ConsumeTurnResponse;
-      turnMeta = consumeData;
-      if (!consumeData?.allowed) {
-        return new Response(
-          JSON.stringify({
-            error: 'TURN_LIMIT',
-            reason: consumeData?.reason,
-            session_turn_count: consumeData?.session_turn_count,
-            daily_turn_count: consumeData?.daily_turn_count,
-            session_limit: consumeData?.session_limit,
-            daily_limit: consumeData?.daily_limit,
-          }),
-          { status: 429, headers: { 'content-type': 'application/json', ...turnMetaHeaders(consumeData) } }
-        );
+        const consumeData = data as ConsumeTurnResponse;
+        turnMeta = consumeData;
+        if (!consumeData?.allowed) {
+          return new Response(
+            JSON.stringify({
+              error: 'TURN_LIMIT',
+              reason: consumeData?.reason,
+              session_turn_count: consumeData?.session_turn_count,
+              daily_turn_count: consumeData?.daily_turn_count,
+              session_limit: consumeData?.session_limit,
+              daily_limit: consumeData?.daily_limit,
+            }),
+            { status: 429, headers: { 'content-type': 'application/json', ...turnMetaHeaders(consumeData) } }
+          );
+        }
+      } else {
+        // 游客逻辑
+        const { data, error } = await supabase.rpc('consume_guest_turn', { p_visitor_id: visitorId }).single();
+        if (error) {
+          console.error('[Turns] consume_guest_turn error:', error);
+          return withJsonHeaders(500, { error: error.message });
+        }
+
+        const consumeData = data as any;
+        if (!consumeData?.allowed) {
+          return new Response(
+            JSON.stringify({
+              error: 'TURN_LIMIT',
+              reason: consumeData?.reason || 'limit_reached',
+              current_count: consumeData?.current_count,
+              limit_count: consumeData?.limit_count,
+            }),
+            {
+              status: 429,
+              headers: {
+                'content-type': 'application/json',
+                'x-session-turn-count': String(consumeData?.current_count || 0),
+                'x-session-limit': String(consumeData?.limit_count || 3),
+              }
+            }
+          );
+        }
+        // 游客模式：借用 session 字段返回进度
+        turnMeta = {
+          allowed: true,
+          session_turn_count: consumeData?.current_count,
+          session_limit: consumeData?.limit_count,
+        };
       }
     } catch (e: any) {
-      console.error('[Turns] consume_turn failed:', e?.message || e);
-      return withJsonHeaders(500, { error: e?.message || 'consume_turn failed' });
+      console.error('[Turns] consumption failed:', e?.message || e);
+      return withJsonHeaders(500, { error: e?.message || 'turn consumption failed' });
     }
 
     const openai = new OpenAI({ apiKey, baseURL });

@@ -4,6 +4,7 @@ import { Search, Image as ImageIcon, Upload, ExternalLink, Loader2, Sparkles, Sh
 import ReactMarkdown from "react-markdown";
 import { supabase } from "./supabaseClient";
 import { Analytics } from "@vercel/analytics/react";
+import FingerprintJS from '@fingerprintjs/fingerprintjs';
 
 function uuidv4(): string {
   // RFC4122 v4, modern browsers
@@ -1434,14 +1435,16 @@ const Sidebar = ({
                 </div>
               )
             ) : (
-              <button
-                onClick={onOpenAuth}
-                className={`w-full flex items-center justify-center ${collapsed ? '' : 'gap-2'} text-zinc-300 hover:text-white py-2 rounded-lg hover:bg-zinc-800 transition-colors text-sm font-medium`}
-                aria-label="登录 / 注册"
-              >
-                <UserCircle size={18} />
-                {!collapsed && <span>登录 / 注册</span>}
-              </button>
+              <div className="flex flex-col gap-3">
+                <button
+                  onClick={onOpenAuth}
+                  className={`w-full flex items-center justify-center ${collapsed ? '' : 'gap-2'} text-zinc-300 hover:text-white py-2 rounded-lg hover:bg-zinc-800 transition-colors text-sm font-medium`}
+                  aria-label="登录 / 注册"
+                >
+                  <UserCircle size={18} />
+                  {!collapsed && <span>登录 / 注册</span>}
+                </button>
+              </div>
             )}
           </div>
         </div>
@@ -1794,6 +1797,20 @@ const App = () => {
   const [sessionsLoading, setSessionsLoading] = useState(false);
   const [sessionMessagesLoading, setSessionMessagesLoading] = useState(false);
   const [messageAnimationNonce, setMessageAnimationNonce] = useState(0);
+  const [visitorId, setVisitorId] = useState<string | null>(null);
+
+  useEffect(() => {
+    const setFp = async () => {
+      try {
+        const fp = await FingerprintJS.load();
+        const { visitorId } = await fp.get();
+        setVisitorId(visitorId);
+      } catch (e) {
+        console.error('Fingerprint failed:', e);
+      }
+    };
+    setFp();
+  }, []);
 
   // Desktop sidebar collapse state (persisted)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -1877,7 +1894,8 @@ const App = () => {
   };
 
   const emailVerified = !!(user && isUserEmailVerified(user));
-  const canUseApp = !!user && emailVerified;
+  // 允许：已验证用户 OR (游客 AND 拿到了指纹)
+  const canUseApp = (!!user && emailVerified) || (!user && !!visitorId);
   
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLElement | null>(null);
@@ -1906,8 +1924,16 @@ const App = () => {
 
   const applyTurnMetaToSidebar = (meta?: Message['turnMeta']) => {
     if (!meta) return;
-    if (typeof meta.daily_turn_count === 'number') setDailyTurnCount(meta.daily_turn_count);
-    if (typeof meta.daily_limit === 'number') setDailyTurnLimit(meta.daily_limit);
+    // 优先使用每日限制（已登录）
+    if (typeof meta.daily_turn_count === 'number') {
+      setDailyTurnCount(meta.daily_turn_count);
+      if (typeof meta.daily_limit === 'number') setDailyTurnLimit(meta.daily_limit);
+    } 
+    // 游客模式借用了 session 字段
+    else if (typeof meta.session_turn_count === 'number') {
+      setDailyTurnCount(meta.session_turn_count);
+      if (typeof meta.session_limit === 'number') setDailyTurnLimit(meta.session_limit);
+    }
   };
 
   const updateIsAtBottom = () => {
@@ -1941,9 +1967,6 @@ const App = () => {
       setAuthLoading(false);
       if (session?.user && isUserEmailVerified(session.user)) {
         setIsAuthOpen(false);
-      } else {
-        // 未登录或未验证邮箱，都不允许继续使用。
-        setIsAuthOpen(true);
       }
     });
 
@@ -1955,7 +1978,6 @@ const App = () => {
       } else {
         setSessions([]);
         setCurrentSessionId(null);
-        setIsAuthOpen(true);
       }
     });
 
@@ -2340,10 +2362,11 @@ const App = () => {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          // 轮数统计/限制依赖用户 JWT（后端调用 consume_turn 需要 auth.uid）
           ...(await (async () => {
             const token = await getSupabaseAccessToken();
-            return token ? { Authorization: `Bearer ${token}` } : {};
+            if (token) return { Authorization: `Bearer ${token}` };
+            if (visitorId) return { 'x-visitor-id': visitorId };
+            return {};
           })()),
         },
         body: JSON.stringify({ messages: updatedMessages, chat_id: sessionId }),
@@ -2361,6 +2384,16 @@ const App = () => {
         const data = await response.json().catch(() => ({}));
         if (response.status === 429 && (data as any)?.error === 'TURN_LIMIT') {
           const reason = (data as any)?.reason;
+
+          if (reason === 'limit_reached' || reason === 'invalid_visitor_id') {
+            setMessages((prev) => prev.map((m) => (m.id === modelMsgId
+              ? { ...m, text: '体验次数已用完，请登录或注册以继续使用喵！', isStreaming: false, status: undefined, turnMeta }
+              : m
+            )));
+            setIsAuthOpen(true);
+            return;
+          }
+
           const base = reason === 'session_limit'
             ? `本会话已达到对话次数上限（${(data as any)?.session_turn_count}/${formatLimit((data as any)?.session_limit)}）`
             : `你已达到今日对话次数上限（${(data as any)?.daily_turn_count}/${formatLimit((data as any)?.daily_limit)}）。`;
@@ -2688,7 +2721,7 @@ const App = () => {
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
                   disabled={!canUseApp}
-                  placeholder={canUseApp ? "描述你想要的素材 (例如: 适用于巧克力的泳衣)..." : "请先登录并完成邮箱验证后继续使用"}
+                  placeholder={canUseApp ? "描述你想要的素材 (例如: 适用于巧克力的泳衣)..." : (user ? "请先登录并完成邮箱验证后继续使用" : "正在加载...")}
                   className="w-full rounded-2xl px-5 py-4 pr-14 text-base focus:outline-none transition-all placeholder-zinc-500 bh-input"
                 />
                 <button
