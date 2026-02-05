@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from "react";
 import { createRoot } from "react-dom/client";
-import { Search, Image as ImageIcon, Upload, ExternalLink, Loader2, Sparkles, ShoppingBag, X, AlertCircle, Terminal, ChevronDown, ChevronUp, Send, Bot, User, MoveHorizontal, Hammer, LogOut, History, Plus, Menu, UserCircle, Layout, MessageSquare, Trash2, Github, Shield, Users } from "lucide-react";
+import { Search, Image as ImageIcon, Upload, ExternalLink, Loader2, Sparkles, ShoppingBag, X, AlertCircle, Terminal, ChevronDown, ChevronUp, Send, Bot, User, MoveHorizontal, Hammer, LogOut, History, Plus, Menu, UserCircle, Layout, MessageSquare, Trash2, Github, Shield, Users, Pause } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import { supabase } from "./supabaseClient";
 import { Analytics } from "@vercel/analytics/react";
@@ -348,6 +348,8 @@ interface Message {
   toolCall?: string; // Track if this message involved a tool call
   status?: string;   // Current system status/progress
   isStreaming?: boolean;
+  // 当后端开始输出 ```json 时，前端用它来在卡片区先渲染骨架预览（避免用户看到一大段 JSON）
+  isJsonStreaming?: boolean;
   turnMeta?: {
     session_turn_count?: number;
     total_turn_count?: number;
@@ -1507,7 +1509,17 @@ const DraggableContainer = React.memo(({ children }: { children: React.ReactNode
   );
 });
 
-const AssetCard = React.memo(({ asset, className, maxTags = 3 }: { asset: AssetResult; className?: string; maxTags?: number }) => {
+const AssetCard = React.memo(({
+  asset,
+  className,
+  maxTags = 3,
+  imageHeightClassName,
+}: {
+  asset: AssetResult;
+  className?: string;
+  maxTags?: number;
+  imageHeightClassName?: string;
+}) => {
   const [imgError, setImgError] = useState(false);
 
   // Strict black + pink theme: avoid dynamic multi-color gradients.
@@ -1516,7 +1528,7 @@ const AssetCard = React.memo(({ asset, className, maxTags = 3 }: { asset: AssetR
 
   return (
     <div className={`group relative bh-card overflow-hidden transition-all duration-300 flex flex-col ${className ?? 'w-[300px] flex-shrink-0'}`}>
-      <div className="h-56 w-full relative overflow-hidden bg-zinc-900/60 border-b border-white/5">
+      <div className={`${imageHeightClassName ?? 'h-56'} w-full relative overflow-hidden bg-zinc-900/60 border-b border-white/5`}>
         {asset.imageUrl && !imgError ? (
           <img 
             src={asset.imageUrl} 
@@ -1575,6 +1587,30 @@ const AssetCard = React.memo(({ asset, className, maxTags = 3 }: { asset: AssetR
               <ExternalLink size={12} />
             </a>
         </div>
+      </div>
+    </div>
+  );
+});
+
+const AssetCardSkeleton = React.memo(({
+  className,
+  imageHeightClassName,
+}: {
+  className?: string;
+  imageHeightClassName?: string;
+}) => {
+  return (
+    <div className={`bh-card overflow-hidden flex flex-col ${className ?? 'w-[300px] flex-shrink-0'}`}>
+      <div className={`${imageHeightClassName ?? 'h-56'} w-full bh-skeleton`} />
+      <div className="p-5 space-y-3">
+        <div className="bh-skeleton" style={{ height: 16, width: '86%', borderRadius: 10 }} />
+        <div className="bh-skeleton" style={{ height: 12, width: '70%', borderRadius: 10 }} />
+        <div className="flex gap-2">
+          <div className="bh-skeleton" style={{ height: 14, width: 56, borderRadius: 999 }} />
+          <div className="bh-skeleton" style={{ height: 14, width: 44, borderRadius: 999 }} />
+          <div className="bh-skeleton" style={{ height: 14, width: 64, borderRadius: 999 }} />
+        </div>
+        <div className="bh-skeleton" style={{ height: 34, width: '100%', borderRadius: 14 }} />
       </div>
     </div>
   );
@@ -1659,10 +1695,19 @@ const ChatMessageBubble = React.memo(({ message, largeLayout }: { message: Messa
         {message.items && message.items.length > 0 && (
           <div className="w-full mt-6 pl-2">
             {largeLayout ? (
-              <div className="grid grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-5">
-                {message.items.map((item, idx) => (
-                  <AssetCard key={item.id || idx} asset={item} className="w-full" maxTags={5} />
-                ))}
+              // 大屏：最多展示 3 行卡片，剩余内容在该区域内纵向滚动查看
+              <div className="max-h-[1000px] overflow-y-auto pr-2">
+                <div className="grid grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-5">
+                  {message.items.map((item, idx) => (
+                    <AssetCard
+                      key={item.id || idx}
+                      asset={item}
+                      className="w-full h-[450px]"
+                      imageHeightClassName="h-[300px]"
+                      maxTags={5}
+                    />
+                  ))}
+                </div>
               </div>
             ) : (
               <>
@@ -1676,6 +1721,31 @@ const ChatMessageBubble = React.memo(({ message, largeLayout }: { message: Messa
                   <span>按住卡片左右拖动查看更多</span>
                 </div>
               </>
+            )}
+          </div>
+        )}
+
+        {/* Skeleton preview while streaming JSON */}
+        {(!message.items || message.items.length === 0) && message.isStreaming && message.isJsonStreaming && (
+          <div className="w-full mt-6 pl-2">
+            {largeLayout ? (
+              <div className="max-h-[1300px] overflow-y-auto pr-2">
+                <div className="grid grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-5">
+                  {Array.from({ length: 8 }).map((_, i) => (
+                    <AssetCardSkeleton
+                      key={i}
+                      className="w-full h-[420px]"
+                      imageHeightClassName="h-[280px]"
+                    />
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <DraggableContainer>
+                {Array.from({ length: 6 }).map((_, i) => (
+                  <AssetCardSkeleton key={i} />
+                ))}
+              </DraggableContainer>
             )}
           </div>
         )}
@@ -1713,6 +1783,7 @@ const App = () => {
   const [input, setInput] = useState("");
   const [image, setImage] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [canStop, setCanStop] = useState(false);
   const [processingTool, setProcessingTool] = useState(false);
   const [imageProcessing, setImageProcessing] = useState(false);
   const reducedMotion = usePrefersReducedMotion();
@@ -1811,6 +1882,10 @@ const App = () => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const sessionMessagesCacheRef = useRef<Record<string, Message[]>>({});
   const sessionMessagesInFlightRef = useRef<Record<string, Promise<Message[]>>>({});
+
+  // 用于“停止生成”：Abort 当前 /api/chat 的 fetch 流式请求
+  const chatAbortRef = useRef<AbortController | null>(null);
+  const stopRequestedRef = useRef(false);
 
   const parseTurnMetaFromHeaders = (headers: Headers): Message['turnMeta'] => {
     const toNum = (v: string | null): number | undefined => {
@@ -2180,6 +2255,15 @@ const App = () => {
     return undefined;
   };
 
+  const handleStopGenerating = () => {
+    stopRequestedRef.current = true;
+    try {
+      chatAbortRef.current?.abort();
+    } catch {
+      // ignore
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!canUseApp) return;
@@ -2191,6 +2275,18 @@ const App = () => {
     setInput("");
     setImage(null);
     setLoading(true);
+    setCanStop(true);
+
+    // 若上一次还在生成，先终止（防御性）
+    try {
+      chatAbortRef.current?.abort();
+    } catch {
+      // ignore
+    }
+
+    stopRequestedRef.current = false;
+    const abortController = new AbortController();
+    chatAbortRef.current = abortController;
 
     // 确保本轮有 chat_id（首次进入页面直接发送时，currentSessionId 可能为 null）
     const sessionId = currentSessionId || uuidv4();
@@ -2232,6 +2328,10 @@ const App = () => {
       },
     ]);
 
+    // 让 catch 在 AbortError 时也能拿到部分已接收的内容
+    let accumulatedText = "";
+    let streamBuffer = "";
+
     try {
       const response = await fetch('/api/chat', {
         method: 'POST',
@@ -2243,7 +2343,8 @@ const App = () => {
             return token ? { Authorization: `Bearer ${token}` } : {};
           })()),
         },
-        body: JSON.stringify({ messages: updatedMessages, chat_id: sessionId })
+        body: JSON.stringify({ messages: updatedMessages, chat_id: sessionId }),
+        signal: abortController.signal,
       });
 
       const turnMeta = parseTurnMetaFromHeaders(response.headers);
@@ -2284,7 +2385,13 @@ const App = () => {
 
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
-      let accumulatedText = "";
+
+      // 由于 fetch stream 的 chunk 边界不可控：
+      // - 同一个 chunk 里可能包含多个 __STATUS__
+      // - 或者 __STATUS__ 可能被拆分到两个 chunk
+      // 因此这里使用 buffer 逐步解析，避免丢内容。
+      const STATUS_MARKER = "__STATUS__:";
+      // streamBuffer / accumulatedText 已在外部声明，便于 AbortError 时也能返回部分内容
 
       let currentStatus = "";
       while (true) {
@@ -2296,25 +2403,55 @@ const App = () => {
         
         const chunk = decoder.decode(value, { stream: true });
         console.log(`[Stream] Received chunk: ${chunk.substring(0, 30)}...`);
-        
-        // Handle custom status prefix
-        if (chunk.includes("__STATUS__:")) {
-          const parts = chunk.split("__STATUS__:");
-          // The text before prefix belongs to accumulated text
-          if (parts[0]) accumulatedText += parts[0];
-          // The text after prefix is the new status
-          currentStatus = parts[1].split("\n")[0]; // Assume status is single line
-          
-          setMessages(prev => prev.map(m => m.id === modelMsgId ? { 
-            ...m, 
+
+        streamBuffer += chunk;
+
+        // 解析所有完整的 __STATUS__:xxx\n
+        while (true) {
+          const idx = streamBuffer.indexOf(STATUS_MARKER);
+          if (idx === -1) break;
+
+          // marker 前的都是正文
+          if (idx > 0) {
+            accumulatedText += streamBuffer.slice(0, idx);
+            streamBuffer = streamBuffer.slice(idx);
+          }
+
+          // 现在 buffer 以 marker 开头
+          const afterMarker = streamBuffer.slice(STATUS_MARKER.length);
+          const nlIdx = afterMarker.indexOf("\n");
+          if (nlIdx === -1) {
+            // status 行还没完整到达，等待下一个 chunk
+            break;
+          }
+
+          // 后端可能为了触发 flush 而在 status 行内填充空格，这里统一 trim。
+          currentStatus = afterMarker.slice(0, nlIdx).trim();
+          // 消费 marker + status + newline
+          streamBuffer = afterMarker.slice(nlIdx + 1);
+
+          setMessages(prev => prev.map(m => m.id === modelMsgId ? {
+            ...m,
             text: accumulatedText,
             status: currentStatus
           } : m));
-          continue;
         }
 
-        accumulatedText += chunk;
-        setMessages(prev => prev.map(m => m.id === modelMsgId ? { ...m, text: accumulatedText } : m));
+        // 将 buffer 中确定不是 marker 的部分刷入正文；保留尾部少量字符用于跨 chunk 的 marker 匹配
+        const keepTail = Math.max(0, STATUS_MARKER.length - 1);
+        if (streamBuffer.length > keepTail) {
+          accumulatedText += streamBuffer.slice(0, streamBuffer.length - keepTail);
+          streamBuffer = streamBuffer.slice(streamBuffer.length - keepTail);
+        }
+
+        const maybeJsonStreaming = (accumulatedText + streamBuffer).toLowerCase().includes("```json");
+        setMessages(prev => prev.map(m => m.id === modelMsgId ? { ...m, text: accumulatedText, isJsonStreaming: maybeJsonStreaming } : m));
+      }
+
+      // Flush any remaining buffered content
+      if (streamBuffer) {
+        accumulatedText += streamBuffer;
+        streamBuffer = "";
       }
 
       // Final cleanup of status
@@ -2333,6 +2470,7 @@ const App = () => {
         text: finalText, 
         items: items, 
         isStreaming: false,
+        isJsonStreaming: false,
         timestamp: Date.now(),
         turnMeta,
       };
@@ -2345,13 +2483,29 @@ const App = () => {
       saveCurrentSession(finalMessages, sessionId).catch(e => console.error("Auto-save failed:", e));
 
     } catch (err: any) {
+      // 用户点击“停止生成”时：fetch 会抛 AbortError
+      const isAbort = err?.name === 'AbortError' || stopRequestedRef.current;
+      if (isAbort) {
+        // 尽量保留已收到的内容（如果 response 已经开始流式返回的话）
+        // @ts-ignore - accumulatedText/streamBuffer 在上方 try 块作用域内
+        const partial = String((typeof accumulatedText !== 'undefined' ? accumulatedText : '') + (typeof streamBuffer !== 'undefined' ? streamBuffer : '')).trim();
+        const finalText = partial ? (partial + "\n\n（已停止生成）") : "（已停止生成）";
+        setMessages((prev) => prev.map((m) => (m.id === modelMsgId
+          ? { ...m, text: finalText, isStreaming: false, isJsonStreaming: false, status: undefined }
+          : m
+        )));
+        return;
+      }
+
       console.error(err);
       const msg = err?.message || "出错了！你可以发送“重试”来再次尝试。";
       setMessages((prev) => prev.map((m) => (m.id === modelMsgId
-        ? { ...m, text: msg, isStreaming: false, status: undefined }
+        ? { ...m, text: msg, isStreaming: false, isJsonStreaming: false, status: undefined }
         : m
       )));
     } finally {
+      chatAbortRef.current = null;
+      setCanStop(false);
       setLoading(false);
     }
   };
@@ -2522,12 +2676,18 @@ const App = () => {
                   className="w-full rounded-2xl px-5 py-4 pr-14 text-base focus:outline-none transition-all placeholder-zinc-500 bh-input"
                 />
                 <button
-                  type="submit"
-                  disabled={!canUseApp || loading || imageProcessing || (!input.trim() && !image)}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 p-2.5 text-white rounded-xl disabled:opacity-50 disabled:bg-zinc-700 transition-all bh-btn-primary"
-                  aria-label="发送"
+                  type={canStop ? "button" : "submit"}
+                  onClick={canStop ? handleStopGenerating : undefined}
+                  disabled={!canUseApp || imageProcessing || (!canStop && (loading || (!input.trim() && !image)))}
+                  className={`absolute right-2 top-1/2 -translate-y-1/2 p-2.5 text-white rounded-xl transition-all ${
+                    canStop
+                      ? 'bg-zinc-800 hover:bg-zinc-700'
+                      : 'bh-btn-primary disabled:opacity-50 disabled:bg-zinc-700'
+                  }`}
+                  aria-label={canStop ? "停止生成" : "发送"}
+                  title={canStop ? "停止生成" : "发送"}
                 >
-                  <Send size={18} />
+                  {canStop ? <Pause size={18} /> : <Send size={18} />}
                 </button>
               </div>
             </form>
