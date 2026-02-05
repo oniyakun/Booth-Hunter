@@ -2436,18 +2436,17 @@ const App = () => {
           console.log("[Stream] Done reading.");
           break;
         }
-        
+
         const chunk = decoder.decode(value, { stream: true });
         console.log(`[Stream] Received chunk: ${chunk.substring(0, 30)}...`);
-
         streamBuffer += chunk;
 
-        // 解析所有完整的 __STATUS__:xxx\n
+        // 1. 解析所有完整的 __STATUS__:xxx\n
         while (true) {
           const idx = streamBuffer.indexOf(STATUS_MARKER);
           if (idx === -1) break;
 
-          // marker 前的都是正文
+          // marker 前的视为正文内容
           if (idx > 0) {
             accumulatedText += streamBuffer.slice(0, idx);
             streamBuffer = streamBuffer.slice(idx);
@@ -2457,51 +2456,53 @@ const App = () => {
           const afterMarker = streamBuffer.slice(STATUS_MARKER.length);
           const nlIdx = afterMarker.indexOf("\n");
           if (nlIdx === -1) {
-            // status 行还没完整到达，等待下一个 chunk
+            // status 行还没完整到达（由于 chunk 拆分），等待下一个 chunk
             break;
           }
 
-          // 后端可能为了触发 flush 而在 status 行内填充空格，这里统一 trim。
+          // 提取状态内容并消耗掉这一行
           currentStatus = afterMarker.slice(0, nlIdx).trim();
-          // 消费 marker + status + newline
           streamBuffer = afterMarker.slice(nlIdx + 1);
 
-          setMessages(prev => prev.map(m => m.id === modelMsgId ? {
-            ...m,
-            text: accumulatedText,
-            status: currentStatus
-          } : m));
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.id === modelMsgId ? { ...m, status: currentStatus, text: accumulatedText.trimStart() } : m
+            )
+          );
         }
 
-        // 只有当 buffer 中不包含 marker 的前缀时，才安全地将部分内容刷入正文。
-        // 如果 buffer 中可能包含 marker（即便是不完整的），我们应该等待下一个 chunk。
-        let firstPossibleMarkerIdx = -1;
+        // 2. 决定剩余 buffer 的哪些部分可以安全刷入正文
+        // 我们不能刷入可能包含 marker 的部分（即便只是 marker 的前几个字符）
+        let safeToFlushIdx = streamBuffer.length;
         for (let i = 0; i < streamBuffer.length; i++) {
-          if (STATUS_MARKER.startsWith(streamBuffer.slice(i))) {
-            firstPossibleMarkerIdx = i;
+          const remaining = streamBuffer.slice(i);
+          if (STATUS_MARKER.startsWith(remaining)) {
+            safeToFlushIdx = i;
             break;
           }
         }
 
-        if (firstPossibleMarkerIdx === -1) {
-          // buffer 里完全没有 marker 的影子，全刷进去
-          accumulatedText += streamBuffer;
-          streamBuffer = "";
-        } else if (firstPossibleMarkerIdx > 0) {
-          // 刷入直到第一个可能出现 marker 的位置
-          accumulatedText += streamBuffer.slice(0, firstPossibleMarkerIdx);
-          streamBuffer = streamBuffer.slice(firstPossibleMarkerIdx);
+        if (safeToFlushIdx > 0) {
+          accumulatedText += streamBuffer.slice(0, safeToFlushIdx);
+          streamBuffer = streamBuffer.slice(safeToFlushIdx);
         }
 
-        const maybeJsonStreaming = (accumulatedText + streamBuffer).toLowerCase().includes("```json");
-        setMessages(prev => prev.map(m => m.id === modelMsgId ? { ...m, text: accumulatedText, isJsonStreaming: maybeJsonStreaming } : m));
+        // 3. 更新 UI (排除开头的 Padding 空格)
+        const displayText = accumulatedText.trimStart();
+        const maybeJsonStreaming = (displayText + streamBuffer).toLowerCase().includes("```json");
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === modelMsgId ? { ...m, text: displayText, isJsonStreaming: maybeJsonStreaming } : m
+          )
+        );
       }
 
-      // Flush any remaining buffered content
-      if (streamBuffer) {
+      // Flush 结束清理：如果 buffer 里还剩下东西，且不是以标记开头，才刷入。
+      // 如果剩下的看起来像一个不完整的标记（例如流被意外切断），则丢弃。
+      if (streamBuffer && !STATUS_MARKER.startsWith(streamBuffer)) {
         accumulatedText += streamBuffer;
-        streamBuffer = "";
       }
+      streamBuffer = "";
 
       // Final cleanup of status
       setMessages(prev => prev.map(m => m.id === modelMsgId ? { ...m, status: undefined } : m));
