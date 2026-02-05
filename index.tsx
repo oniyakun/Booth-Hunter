@@ -2441,28 +2441,23 @@ const App = () => {
         console.log(`[Stream] Received chunk: ${chunk.substring(0, 30)}...`);
         streamBuffer += chunk;
 
-        // 1. 解析所有完整的 __STATUS__:xxx\n
+        // 1. 处理所有完整的状态行
         while (true) {
           const idx = streamBuffer.indexOf(STATUS_MARKER);
           if (idx === -1) break;
 
-          // marker 前的视为正文内容
+          const nlIdx = streamBuffer.indexOf("\n", idx);
+          if (nlIdx === -1) break; // 标记行收尾没齐，等待后续 chunk
+
+          // 标记之前的都是真实正文
           if (idx > 0) {
             accumulatedText += streamBuffer.slice(0, idx);
-            streamBuffer = streamBuffer.slice(idx);
           }
 
-          // 现在 buffer 以 marker 开头
-          const afterMarker = streamBuffer.slice(STATUS_MARKER.length);
-          const nlIdx = afterMarker.indexOf("\n");
-          if (nlIdx === -1) {
-            // status 行还没完整到达（由于 chunk 拆分），等待下一个 chunk
-            break;
-          }
-
-          // 提取状态内容并消耗掉这一行
-          currentStatus = afterMarker.slice(0, nlIdx).trim();
-          streamBuffer = afterMarker.slice(nlIdx + 1);
+          // 提取状态内容
+          currentStatus = streamBuffer.slice(idx + STATUS_MARKER.length, nlIdx).trim();
+          // 消费掉直到换行符的所有内容
+          streamBuffer = streamBuffer.slice(nlIdx + 1);
 
           setMessages((prev) =>
             prev.map((m) =>
@@ -2471,20 +2466,27 @@ const App = () => {
           );
         }
 
-        // 2. 决定剩余 buffer 的哪些部分可以安全刷入正文
-        // 我们不能刷入可能包含 marker 的部分（即便只是 marker 的前几个字符）
-        let safeToFlushIdx = streamBuffer.length;
-        for (let i = 0; i < streamBuffer.length; i++) {
-          const remaining = streamBuffer.slice(i);
-          if (STATUS_MARKER.startsWith(remaining)) {
-            safeToFlushIdx = i;
-            break;
+        // 2. 检查 buffer 末尾，确定安全刷入正文的边界
+        // 不安全的位置定义：出现了完整标记（但没换行）或者标记的开始前缀
+        let firstUnsafeIdx = streamBuffer.indexOf(STATUS_MARKER);
+        if (firstUnsafeIdx === -1) {
+          // 没发现完整标记，再看末尾是否匹配标记前缀（防止标记被从中间切断）
+          for (let i = 0; i < streamBuffer.length; i++) {
+            if (STATUS_MARKER.startsWith(streamBuffer.slice(i))) {
+              firstUnsafeIdx = i;
+              break;
+            }
           }
         }
 
-        if (safeToFlushIdx > 0) {
-          accumulatedText += streamBuffer.slice(0, safeToFlushIdx);
-          streamBuffer = streamBuffer.slice(safeToFlushIdx);
+        if (firstUnsafeIdx === -1) {
+          // 全部安全
+          accumulatedText += streamBuffer;
+          streamBuffer = "";
+        } else if (firstUnsafeIdx > 0) {
+          // 刷入不安全位置之前的部分
+          accumulatedText += streamBuffer.slice(0, firstUnsafeIdx);
+          streamBuffer = streamBuffer.slice(firstUnsafeIdx);
         }
 
         // 3. 更新 UI (排除开头的 Padding 空格)
@@ -2497,10 +2499,25 @@ const App = () => {
         );
       }
 
-      // Flush 结束清理：如果 buffer 里还剩下东西，且不是以标记开头，才刷入。
-      // 如果剩下的看起来像一个不完整的标记（例如流被意外切断），则丢弃。
-      if (streamBuffer && !STATUS_MARKER.startsWith(streamBuffer)) {
-        accumulatedText += streamBuffer;
+      // 4. 流结束清理：如果 buffer 里还剩下东西，必须排除掉任何形式的标记残留
+      if (streamBuffer) {
+        const markerIdx = streamBuffer.indexOf(STATUS_MARKER);
+        if (markerIdx === -1) {
+          // 没有完整标记，但可能只有标记前缀（如 "__ST"），也需要排除
+          let safeToFlush = true;
+          for (let i = 0; i < streamBuffer.length; i++) {
+            if (STATUS_MARKER.startsWith(streamBuffer.slice(i))) {
+              safeToFlush = false;
+              // 如果前缀之前有内容，理论上可以刷入，但流结束时的前缀通常意味着异常，直接保守处理
+              if (i > 0) accumulatedText += streamBuffer.slice(0, i);
+              break;
+            }
+          }
+          if (safeToFlush) accumulatedText += streamBuffer;
+        } else {
+          // 包含完整标记，只刷入标记前的正文
+          if (markerIdx > 0) accumulatedText += streamBuffer.slice(0, markerIdx);
+        }
       }
       streamBuffer = "";
 
