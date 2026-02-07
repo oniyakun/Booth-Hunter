@@ -6,11 +6,6 @@ export const config = {
   runtime: "edge",
 };
 
-const PROXIES = [
-  { name: "Direct", url: (u: string) => u, type: 'html' },
-  { name: "CodeTabs", url: (u: string) => `https://api.codetabs.com/v1/proxy/?quest=${encodeURIComponent(u)}`, type: 'html' },
-  { name: "CorsProxy", url: (u: string) => `https://corsproxy.io/?${encodeURIComponent(u)}`, type: 'html' }
-];
 
 type ClientMessage = {
   id?: string;
@@ -42,6 +37,7 @@ type BoothRawItem = {
   // Booth 列表页通常没有完整详情，这里尽力抓；没有就为空
   description: string;
   tags: string[];
+  variations?: { name: string; price: number }[];
 };
 
 type AgentDecision =
@@ -150,6 +146,7 @@ function compactCandidatesForAgent(items: BoothRawItem[]): any[] {
     url: x.url,
     description: x.description,
     tags: x.tags,
+    variations: x.variations, // 传入规格信息，包含适配模型名称等关键决策依据
   }));
 }
 
@@ -208,6 +205,14 @@ async function decideNextStepEndToEnd(params: {
     ].join(""),
   };
 
+  const candidates_info = candidates
+    ? {
+        keyword_ja: candidatesKeywordJa,
+        page: candidatesPage,
+        candidates: compactCandidatesForAgent(candidates),
+      }
+    : null;
+
   const userPayloadText = JSON.stringify(
     {
       conversation,
@@ -220,13 +225,7 @@ async function decideNextStepEndToEnd(params: {
       picked_count: pickedIds.size,
       need_min: needMin,
       max_pick: maxPick,
-      candidates_info: candidates
-        ? {
-            keyword_ja: candidatesKeywordJa,
-            page: candidatesPage,
-            candidates: compactCandidatesForAgent(candidates),
-          }
-        : null,
+      candidates_info,
     },
     null,
     0
@@ -423,44 +422,94 @@ function parseBoothSearchPage(htmlContent: string): BoothRawItem[] {
   return items;
 }
 
-async function executeSearchBoothPage(keywordJa: string, page: number = 1): Promise<BoothRawItem[]> {
-  console.log(`[Scraper] Starting search for: "${keywordJa}" (Page ${page})`);
-  for (const proxy of PROXIES) {
-    let timeoutId: ReturnType<typeof setTimeout> | null = null;
-    try {
-      console.log(`[Scraper] Attempting via ${proxy.name}...`);
-      const targetUrl = `https://booth.pm/ja/search/${encodeURIComponent(keywordJa)}?page=${page}`;
-      const fetchUrl = proxy.url(targetUrl);
-
-      const controller = new AbortController();
-      timeoutId = setTimeout(() => controller.abort(), 12000);
-
-      const res = await fetch(fetchUrl, {
-        signal: controller.signal,
-        headers: {
-          "User-Agent":
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-          "Accept-Language": "ja-JP,ja;q=0.9,en-US;q=0.8,en;q=0.7",
-        },
-      });
-
-      if (timeoutId) clearTimeout(timeoutId);
-      if (!res.ok) continue;
-
-      const htmlContent = await res.text();
-      if (!htmlContent || htmlContent.length < 500) continue;
-
-      const items = parseBoothSearchPage(htmlContent);
-      if (items.length > 0) {
-        console.log(`[Scraper] Success! Found ${items.length} items via ${proxy.name}`);
-        return items;
+async function fetchItemDetailsJson(id: string): Promise<{ tags?: string[], description?: string, shopUrl?: string, variations?: { name: string, price: number }[] } | null> {
+  const jsonUrl = `https://booth.pm/ja/items/${id}.json`;
+  try {
+    const res = await fetch(jsonUrl, {
+      headers: {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Accept-Language": "ja-JP,ja;q=0.9,en-US;q=0.8,en;q=0.7",
+        "X-Requested-With": "XMLHttpRequest"
       }
-    } catch (e: any) {
-      if (timeoutId) clearTimeout(timeoutId);
-      console.log(`[Scraper] ${proxy.name} error: ${e?.message || e}`);
+    });
+    if (res.ok) {
+      const json = await res.json();
+      return {
+        tags: Array.isArray(json.tags) ? json.tags.map((t: any) => t.name) : undefined,
+        description: json.description,
+        shopUrl: json.shop?.url,
+        variations: Array.isArray(json.variations) ? json.variations.map((v: any) => ({
+          name: v.name,
+          price: v.price
+        })) : undefined
+      };
+    }
+  } catch (e: any) {
+    // ignore
+  }
+  return null;
+}
+
+async function executeSearchBoothPage(keywordJa: string, page: number = 1): Promise<BoothRawItem[]> {
+  console.log(`[Scraper] Starting direct search for: "${keywordJa}" (Page ${page})`);
+  let items: BoothRawItem[] = [];
+
+  let timeoutId: ReturnType<typeof setTimeout> | null = null;
+  try {
+    const targetUrl = `https://booth.pm/ja/search/${encodeURIComponent(keywordJa)}?page=${page}`;
+    const controller = new AbortController();
+    timeoutId = setTimeout(() => controller.abort(), 15000);
+
+    const res = await fetch(targetUrl, {
+      signal: controller.signal,
+      headers: {
+        "User-Agent":
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Accept-Language": "ja-JP,ja;q=0.9,en-US;q=0.8,en;q=0.7",
+      },
+    });
+
+    if (timeoutId) clearTimeout(timeoutId);
+    if (res.ok) {
+      const htmlContent = await res.text();
+      if (htmlContent && htmlContent.length > 500) {
+        items = parseBoothSearchPage(htmlContent);
+      }
+    }
+  } catch (e: any) {
+    if (timeoutId) clearTimeout(timeoutId);
+    console.error(`[Scraper] Search error: ${e?.message || e}`);
+  }
+
+  if (items.length > 0) {
+    // 改进：全量增强。对搜索到的所有商品发起 JSON 请求以获取精准信息。
+    // 使用分批处理（每批 15 个）以平衡速度与稳定性。
+    console.log(`[Scraper] Enhancing all ${items.length} items with JSON data...`);
+    
+    const BATCH_SIZE = 15;
+    for (let i = 0; i < items.length; i += BATCH_SIZE) {
+      const batch = items.slice(i, i + BATCH_SIZE);
+    await Promise.all(batch.map(async (item) => {
+      const details = await fetchItemDetailsJson(item.id);
+      if (details) {
+        if (details.tags) item.tags = details.tags;
+        if (details.description) item.description = details.description;
+        if (details.variations) {
+          item.variations = details.variations;
+          // 重新计算更准确的价格范围
+          const prices = details.variations.map(v => v.price).filter(p => typeof p === 'number');
+          if (prices.length > 0) {
+            const min = Math.min(...prices);
+            const max = Math.max(...prices);
+            item.price = min === max ? `${min} JPY` : `${min} ~ ${max} JPY`;
+          }
+        }
+      }
+    }));
     }
   }
-  return [];
+
+  return items;
 }
 
 interface ConsumeTurnResponse {

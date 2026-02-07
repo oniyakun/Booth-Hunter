@@ -1382,7 +1382,7 @@ const Sidebar = ({
                     <MessageSquare size={16} className="flex-shrink-0" />
                     {!collapsed && (
                       <span className="truncate text-left">
-                        {session.title?.slice(0, 15) || "未命名对话"}
+                        {session.title?.slice(0, 10) || "未命名对话"}
                         {(session.title?.length || 0) > 10 ? "..." : ""}
                       </span>
                     )}
