@@ -1,7 +1,9 @@
 import React, { useState, useRef, useEffect } from "react";
 import { createRoot } from "react-dom/client";
-import { Search, Image as ImageIcon, Upload, ExternalLink, Loader2, Sparkles, ShoppingBag, X, AlertCircle, Terminal, ChevronDown, ChevronUp, Send, Bot, User, MoveHorizontal, Hammer, LogOut, History, Plus, Menu, UserCircle, Layout, MessageSquare, Trash2, Github, Shield, Users, Pause } from "lucide-react";
+import { Search, Image as ImageIcon, Upload, ExternalLink, Loader2, Sparkles, ShoppingBag, X, AlertCircle, Terminal, ChevronDown, ChevronUp, Send, Bot, User, MoveHorizontal, Hammer, LogOut, History, Plus, Menu, UserCircle, Layout, MessageSquare, Trash2, Github, Shield, Users, Pause, Globe } from "lucide-react";
 import ReactMarkdown from "react-markdown";
+import "./i18n";
+import { useTranslation } from "react-i18next";
 import { supabase } from "./supabaseClient";
 import { Analytics } from "@vercel/analytics/react";
 import FingerprintJS from '@fingerprintjs/fingerprintjs';
@@ -50,32 +52,33 @@ const toastAccent = (t: ToastType) => {
 };
 
 const ToastViewport = ({ toasts, onDismiss }: { toasts: Toast[]; onDismiss: (id: string) => void }) => {
+  const { t } = useTranslation();
   return (
-    <div className="fixed right-4 bottom-4 z-[90] w-[calc(100vw-2rem)] max-w-sm space-y-3">
-      {toasts.map((t) => (
+    <div className="fixed right-4 bottom-4 z-[90] w-[calc(100vw-2rem)] max-sm:w-[calc(100vw-1rem)] max-w-sm space-y-3">
+      {toasts.map((toast) => (
         <div
-          key={t.id}
-          className={`bh-surface-strong border shadow-2xl rounded-2xl p-4 backdrop-blur-md ${toastAccent(t.type)}`}
+          key={toast.id}
+          className={`bh-surface-strong border shadow-2xl rounded-2xl p-4 backdrop-blur-md ${toastAccent(toast.type)}`}
         >
           <div className="flex items-start gap-3">
             <div className="mt-0.5">
-              {t.type === 'success' ? (
+              {toast.type === 'success' ? (
                 <Sparkles size={16} />
-              ) : t.type === 'error' ? (
+              ) : toast.type === 'error' ? (
                 <AlertCircle size={16} />
               ) : (
                 <Terminal size={16} />
               )}
             </div>
             <div className="min-w-0 flex-1">
-              {t.title && <div className="text-sm font-bold text-white truncate">{t.title}</div>}
-              <div className="text-sm text-zinc-200 leading-relaxed break-words">{t.message}</div>
+              {toast.title && <div className="text-sm font-bold text-white truncate">{toast.title}</div>}
+              <div className="text-sm text-zinc-200 leading-relaxed break-words">{toast.message}</div>
             </div>
             <button
-              onClick={() => onDismiss(t.id)}
+              onClick={() => onDismiss(toast.id)}
               className="p-1 rounded-lg text-zinc-300 hover:text-white hover:bg-white/10"
-              aria-label="关闭通知"
-              title="关闭"
+              aria-label={t("Close")}
+              title={t("Close")}
             >
               <X size={16} />
             </button>
@@ -97,13 +100,14 @@ const ModalShell = ({
   children: React.ReactNode;
   onClose: () => void;
 }) => {
+  const { t } = useTranslation();
   if (!open) return null;
   return (
     <div className="fixed inset-0 z-[95] bg-black/70 backdrop-blur-md flex items-center justify-center p-4">
       <div className="w-full max-w-md bh-surface-strong rounded-3xl border border-white/10 shadow-2xl overflow-hidden">
         <div className="p-4 border-b border-white/5 flex items-center justify-between">
           <div className="text-white font-bold">{title}</div>
-          <button onClick={onClose} className="bh-icon-btn p-2 text-zinc-300 hover:text-white" aria-label="关闭">
+          <button onClick={onClose} className="bh-icon-btn p-2 text-zinc-300 hover:text-white" aria-label={t("Close")}>
             <X size={18} />
           </button>
         </div>
@@ -124,6 +128,7 @@ const ConfirmModal = ({
   onCancel: () => void;
   onConfirm: () => void;
 }) => {
+  const { t } = useTranslation();
   return (
     <ModalShell open={open} title={options.title} onClose={onCancel}>
       <div className="text-sm text-zinc-300 leading-relaxed whitespace-pre-wrap">{options.message}</div>
@@ -132,7 +137,7 @@ const ConfirmModal = ({
           onClick={onCancel}
           className="flex-1 py-2.5 rounded-xl text-sm font-medium bh-btn-secondary text-white"
         >
-          {options.cancelText || '取消'}
+          {options.cancelText || t("Cancel")}
         </button>
         <button
           onClick={onConfirm}
@@ -140,7 +145,7 @@ const ConfirmModal = ({
             options.destructive ? 'bg-[#ff3d7f] hover:bg-[#ff3d7f]/90' : 'bh-btn-primary'
           }`}
         >
-          {options.confirmText || '确定'}
+          {options.confirmText || t("Confirm")}
         </button>
       </div>
     </ModalShell>
@@ -160,6 +165,7 @@ const UserLimitModal = ({
   onCancel: () => void;
   onSave: (draft: UserLimitDraft) => void;
 }) => {
+  const { t } = useTranslation();
   const [sessionStr, setSessionStr] = useState<string>(initial.session_turn_limit_override == null ? '' : String(initial.session_turn_limit_override));
   const [dailyStr, setDailyStr] = useState<string>(initial.daily_turn_limit_override == null ? '' : String(initial.daily_turn_limit_override));
 
@@ -170,36 +176,36 @@ const UserLimitModal = ({
   }, [open, initial.session_turn_limit_override, initial.daily_turn_limit_override]);
 
   const parseOptionalInt = (s: string): number | null => {
-    const t = s.trim();
-    if (!t) return null;
-    const n = Number(t);
-    if (!Number.isFinite(n)) throw new Error('请输入数字');
+    const tStr = s.trim();
+    if (!tStr) return null;
+    const n = Number(tStr);
+    if (!Number.isFinite(n)) throw new Error(t("PleaseEnterNumber"));
     return Math.trunc(n);
   };
 
   return (
-    <ModalShell open={open} title="设置用户限制" onClose={onCancel}>
+    <ModalShell open={open} title={t("SetUserLimit")} onClose={onCancel}>
       <div className="text-xs text-zinc-400 mb-3">
-        目标用户：<span className="text-zinc-200 font-mono">{emailOrId}</span>
+        {t("TargetUser")}：<span className="text-zinc-200 font-mono">{emailOrId}</span>
       </div>
 
       <div className="space-y-3">
         <div>
-          <label className="block text-xs font-medium text-zinc-400 mb-1">单会话对话次数上限</label>
+          <label className="block text-xs font-medium text-zinc-400 mb-1">{t("SessionLimitLabel")}</label>
           <input
             value={sessionStr}
             onChange={(e) => setSessionStr(e.target.value)}
-            placeholder="留空=默认，0=无限制"
+            placeholder={t("LimitPlaceholder")}
             className="w-full rounded-xl px-4 py-3 text-white focus:outline-none bh-input"
             inputMode="numeric"
           />
         </div>
         <div>
-          <label className="block text-xs font-medium text-zinc-400 mb-1">单日对话次数上限</label>
+          <label className="block text-xs font-medium text-zinc-400 mb-1">{t("DailyLimitLabel")}</label>
           <input
             value={dailyStr}
             onChange={(e) => setDailyStr(e.target.value)}
-            placeholder="留空=默认，0=无限制"
+            placeholder={t("LimitPlaceholder")}
             className="w-full rounded-xl px-4 py-3 text-white focus:outline-none bh-input"
             inputMode="numeric"
           />
@@ -207,12 +213,12 @@ const UserLimitModal = ({
       </div>
 
       <div className="mt-3 text-[11px] text-zinc-500 leading-relaxed">
-        留空表示使用全局默认；0 表示无限制。
+        {t("LimitHint")}
       </div>
 
       <div className="mt-5 flex gap-3">
         <button onClick={onCancel} className="flex-1 py-2.5 rounded-xl text-sm font-medium bh-btn-secondary text-white">
-          取消
+          {t("Cancel")}
         </button>
         <button
           onClick={() => {
@@ -228,7 +234,7 @@ const UserLimitModal = ({
           }}
           className="flex-1 py-2.5 rounded-xl text-sm font-bold bh-btn-primary text-white"
         >
-          保存
+          {t("Save")}
         </button>
       </div>
     </ModalShell>
@@ -434,6 +440,7 @@ const AdminPanel = ({
   notify: (t: Omit<Toast, 'id'>) => void;
   editUserLimits: (u: Profile) => Promise<UserLimitDraft | null>;
 }) => {
+  const { t } = useTranslation();
   const [users, setUsers] = useState<Profile[]>([]);
   const [usersLoading, setUsersLoading] = useState(false);
   const [userDeletingId, setUserDeletingId] = useState<string | null>(null);
@@ -455,6 +462,7 @@ const AdminPanel = ({
   // Admin 详情里需要把历史消息中可能包含的商品卡片渲染出来。
   // - 新版本 messages 里通常会带 items 字段。
   // - 老版本可能把 items 以 ```json [...]``` 的形式嵌在 text 里。
+  const { t: tAdmin } = useTranslation();
   const extractItemsFromText = (text: string): { cleanText: string; items?: AssetResult[] } => {
     const jsonBlockRegex = /```json\s*(\[[\s\S]*?\])\s*```/i;
     const match = text.match(jsonBlockRegex);
@@ -471,6 +479,7 @@ const AdminPanel = ({
   };
 
   const AdminAssetCard = ({ asset }: { asset: AssetResult }) => {
+    const { t: tCard } = useTranslation();
     const [imgError, setImgError] = useState(false);
     const placeholderGradient =
       'linear-gradient(135deg, rgba(252, 77, 80, 0.18), rgba(255, 61, 127, 0.10))';
@@ -522,13 +531,13 @@ const AdminPanel = ({
 
           <div className="mt-4 pt-3 border-t border-[#27272a] flex justify-between items-center">
             <span className="text-[11px] text-zinc-500 truncate max-w-[60%]">{asset.shopName}</span>
-            <a
-              href={asset.url}
-              target="_blank"
+             <a 
+              href={asset.url} 
+              target="_blank" 
               rel="noopener noreferrer"
               className="flex items-center gap-1.5 text-xs font-bold text-white px-3 py-2 rounded-xl bh-btn-primary"
             >
-              详情
+              {tAdmin("AssetDetails")}
               <ExternalLink size={12} />
             </a>
           </div>
@@ -538,6 +547,7 @@ const AdminPanel = ({
   };
 
   const AdminMessageCard = ({ m, idx }: { m: Message; idx: number }) => {
+    const { t: tMsg } = useTranslation();
     const isUser = m.role === 'user';
 
     // items 优先使用消息对象自带的；否则尝试从 text 的 ```json``` 里解析。
@@ -580,8 +590,8 @@ const AdminPanel = ({
       const res = await adminFetchJson<{ data: Profile[] }>(`/api/admin/users?sort_by=${encodeURIComponent(sortParam)}`);
       setUsers(res.data || []);
     } catch (e: any) {
-      setError(e?.message || '加载用户失败');
-      notify({ type: 'error', title: '加载失败', message: e?.message || '加载用户失败' });
+      setError(e?.message || t("LoadUsersFailed"));
+      notify({ type: 'error', title: t("LoadFailed"), message: e?.message || t("LoadUsersFailed") });
     } finally {
       setUsersLoading(false);
     }
@@ -621,10 +631,10 @@ const AdminPanel = ({
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error((data as any)?.error || `Request failed: ${res.status}`);
       setSettings((data as any)?.data || settings);
-      notify({ type: 'success', title: '已保存', message: '默认限制已更新' });
+      notify({ type: 'success', title: t("Saved"), message: t("DefaultLimitUpdated") });
     } catch (e: any) {
-      setError(e?.message || '保存默认限制失败');
-      notify({ type: 'error', title: '保存失败', message: e?.message || '保存默认限制失败' });
+      setError(e?.message || t("SaveLimitFailed"));
+      notify({ type: 'error', title: t("SaveFailed"), message: e?.message || t("SaveLimitFailed") });
     } finally {
       setSettingsSaving(false);
     }
@@ -659,20 +669,20 @@ const AdminPanel = ({
         await loadUsers();
       }
 
-      notify({ type: 'success', title: '已保存', message: '用户限制已更新' });
+      notify({ type: 'success', title: t("Saved"), message: t("UserLimitUpdated") });
     } catch (e: any) {
-      notify({ type: 'error', title: '设置失败', message: e?.message || '设置用户限制失败' });
-      setError(e?.message || '设置用户限制失败');
+      notify({ type: 'error', title: t("SetFailed"), message: e?.message || t("SetUserLimitFailed") });
+      setError(e?.message || t("SetUserLimitFailed"));
     }
   };
 
   const deleteUser = async (userId: string) => {
     if (!userId) return;
     const ok = await confirm({
-      title: '删除用户',
-      message: '确定要删除该用户吗？\n\n这会同时删除：\n- auth.users\n- profiles\n- 该用户所有 chats\n\n此操作不可恢复。',
-      confirmText: '删除',
-      cancelText: '取消',
+      title: t("DeleteUser"),
+      message: t("DeleteUserConfirm"),
+      confirmText: t("Delete"),
+      cancelText: t("Cancel"),
       destructive: true,
     });
     if (!ok) return;
@@ -701,10 +711,10 @@ const AdminPanel = ({
         setChats([]);
       }
       await loadUsers();
-      notify({ type: 'success', title: '已删除', message: '用户已删除' });
+      notify({ type: 'success', title: t("Deleted"), message: t("UserDeleted") });
     } catch (e: any) {
-      setError(e?.message || '删除用户失败');
-      notify({ type: 'error', title: '删除失败', message: e?.message || '删除用户失败' });
+      setError(e?.message || t("DeleteUserFailed"));
+      notify({ type: 'error', title: t("DeleteFailed"), message: e?.message || t("DeleteUserFailed") });
     } finally {
       setUserDeletingId(null);
     }
@@ -720,8 +730,8 @@ const AdminPanel = ({
       const res = await adminFetchJson<{ data: AdminChatMeta[] }>(`/api/admin/chats${qs}`);
       setChats(res.data || []);
     } catch (e: any) {
-      setError(e?.message || '加载对话列表失败');
-      notify({ type: 'error', title: '加载失败', message: e?.message || '加载对话列表失败' });
+      setError(e?.message || t("LoadChatsFailed"));
+      notify({ type: 'error', title: t("LoadFailed"), message: e?.message || t("LoadChatsFailed") });
     } finally {
       setChatsLoading(false);
     }
@@ -730,10 +740,10 @@ const AdminPanel = ({
   const deleteChat = async (chatId: string) => {
     if (!chatId) return;
     const ok = await confirm({
-      title: '删除对话',
-      message: '确定要删除这条对话吗？\n\n此操作不可恢复。',
-      confirmText: '删除',
-      cancelText: '取消',
+      title: t("DeleteChat"),
+      message: t("DeleteChatAdminConfirm"),
+      confirmText: t("Delete"),
+      cancelText: t("Cancel"),
       destructive: true,
     });
     if (!ok) return;
@@ -760,12 +770,12 @@ const AdminPanel = ({
         setChatDetail(null);
       }
 
-      // 从列表里移除（避免一次全量刷新），并保持 UI 响应快
+      // 从列表里移除（避免一次全量刷新），并保持 UI响应快
       setChats((prev) => prev.filter((c) => c.id !== chatId));
-      notify({ type: 'success', title: '已删除', message: '对话已删除' });
+      notify({ type: 'success', title: t("Deleted"), message: t("ChatDeleted") });
     } catch (e: any) {
-      setError(e?.message || '删除对话失败');
-      notify({ type: 'error', title: '删除失败', message: e?.message || '删除对话失败' });
+      setError(e?.message || t("DeleteChatFailed"));
+      notify({ type: 'error', title: t("DeleteFailed"), message: e?.message || t("DeleteChatFailed") });
     } finally {
       setChatDeletingId(null);
     }
@@ -780,8 +790,8 @@ const AdminPanel = ({
       );
       setChatDetail(res.data);
     } catch (e: any) {
-      setError(e?.message || '加载对话详情失败');
-      notify({ type: 'error', title: '加载失败', message: e?.message || '加载对话详情失败' });
+      setError(e?.message || t("LoadChatDetailFailed"));
+      notify({ type: 'error', title: t("LoadFailed"), message: e?.message || t("LoadChatDetailFailed") });
     } finally {
       setChatLoading(false);
     }
@@ -810,12 +820,12 @@ const AdminPanel = ({
               <Shield size={18} />
             </div>
             <div className="flex flex-col leading-none">
-              <span className="text-white font-bold">管理员面板</span>
+              <span className="text-white font-bold">{t("AdminPanel")}</span>
               <span className="text-[10px] text-zinc-400 font-mono tracking-wide mt-0.5">Admin Console</span>
             </div>
           </div>
 
-          <button onClick={onClose} className="bh-icon-btn p-2 text-zinc-300 hover:text-white" aria-label="关闭管理员面板">
+          <button onClick={onClose} className="bh-icon-btn p-2 text-zinc-300 hover:text-white" aria-label={t("Close")}>
             <X size={20} />
           </button>
         </div>
@@ -827,7 +837,7 @@ const AdminPanel = ({
             <div className="px-4 py-3 border-b border-white/5">
               <div className="flex items-center gap-2 text-white font-bold">
                 <Users size={18} className="text-[#ff3d7f]" />
-                <span>用户管理</span>
+                <span>{t("UserManagement")}</span>
               </div>
             </div>
 
@@ -837,12 +847,12 @@ const AdminPanel = ({
               <div className="p-4 border-b border-white/5">
                 <div className="flex items-center gap-2 text-zinc-300 text-sm font-medium mb-3">
                   <Search size={14} className="text-zinc-500" />
-                  <span>搜索用户</span>
+                  <span>{t("SearchUser")}</span>
                 </div>
                 <input
                   value={userQuery}
                   onChange={(e) => setUserQuery(e.target.value)}
-                  placeholder="输入 email 或 user_id..."
+                  placeholder={t("SearchUserPlaceholder")}
                   className="w-full rounded-xl px-4 py-2.5 text-white focus:outline-none bh-input text-sm"
                 />
               </div>
@@ -852,12 +862,12 @@ const AdminPanel = ({
                 <div className="flex items-center justify-between mb-3">
                   <div className="flex items-center gap-2 text-zinc-300 text-sm font-medium">
                     <Layout size={14} className="text-zinc-500" />
-                    <span>视图选项</span>
+                    <span>{t("ViewOptions")}</span>
                   </div>
                   <button
                     onClick={() => loadUsers()}
                     className="p-1.5 rounded-lg text-zinc-500 hover:text-white hover:bg-white/5 transition-colors"
-                    title="刷新用户列表"
+                    title={t("Refresh")}
                   >
                     <Loader2 size={14} className={`${usersLoading ? 'animate-spin' : ''}`} />
                   </button>
@@ -875,9 +885,9 @@ const AdminPanel = ({
                         ? 'bg-[#ff3d7f]/20 text-white'
                         : 'bg-white/5 text-zinc-400 hover:text-zinc-200 hover:bg-white/[0.07]'
                     }`}
-                    title="注册时间"
+                    title={t("CreatedAt")}
                   >
-                    注册时间
+                    {t("CreatedAt")}
                   </button>
                   <button
                     onClick={() => {
@@ -889,9 +899,9 @@ const AdminPanel = ({
                         ? 'bg-[#ff3d7f]/20 text-white'
                         : 'bg-white/5 text-zinc-400 hover:text-zinc-200 hover:bg-white/[0.07]'
                     }`}
-                    title="最近活跃"
+                    title={t("LastActive")}
                   >
-                    最近活跃
+                    {t("LastActive")}
                   </button>
                   <button
                     onClick={() => {
@@ -903,9 +913,9 @@ const AdminPanel = ({
                         ? 'bg-[#ff3d7f]/20 text-white'
                         : 'bg-white/5 text-zinc-400 hover:text-zinc-200 hover:bg-white/[0.07]'
                     }`}
-                    title="对话总数"
+                    title={t("TotalTurns")}
                   >
-                    对话总数
+                    {t("TotalTurns")}
                   </button>
                 </div>
 
@@ -916,7 +926,7 @@ const AdminPanel = ({
                     className="w-full py-2.5 rounded-xl text-sm font-medium bh-btn-secondary text-white flex items-center justify-center gap-2"
                   >
                     <MessageSquare size={16} />
-                    查看全部对话
+                    {t("ViewAllChats")}
                   </button>
                 </div>
               </div>
@@ -925,13 +935,13 @@ const AdminPanel = ({
               <div className="p-4">
                 <div className="flex items-center gap-2 text-zinc-300 text-sm font-medium mb-3">
                   <Shield size={14} className="text-zinc-500" />
-                  <span>全局默认限制</span>
+                  <span>{t("GlobalLimit")}</span>
                 </div>
                 
                 <div className="space-y-3">
                   <div className="grid grid-cols-2 gap-3">
                     <div>
-                      <label className="block text-[11px] text-zinc-500 mb-1.5">单会话上限</label>
+                      <label className="block text-[11px] text-zinc-500 mb-1.5">{t("SessionLimitLabel")}</label>
                       <input
                         value={settings?.default_session_turn_limit ?? ''}
                         onChange={(e) => {
@@ -947,7 +957,7 @@ const AdminPanel = ({
                       />
                     </div>
                     <div>
-                      <label className="block text-[11px] text-zinc-500 mb-1.5">单日上限</label>
+                      <label className="block text-[11px] text-zinc-500 mb-1.5">{t("DailyLimitLabel")}</label>
                       <input
                         value={settings?.default_daily_turn_limit ?? ''}
                         onChange={(e) => {
@@ -972,18 +982,18 @@ const AdminPanel = ({
                     {settingsSaving ? (
                       <>
                         <Loader2 size={14} className="animate-spin" />
-                        保存中...
+                        {t("Saving")}...
                       </>
                     ) : (
                       <>
                         <Terminal size={14} />
-                        保存设置
+                        {t("SaveSettings")}
                       </>
                     )}
                   </button>
                   
                   <div className="text-[10px] text-zinc-500 leading-relaxed bg-white/5 rounded-lg px-3 py-2">
-                    <span className="text-[#ff3d7f]">提示：</span>0 表示无限制；留空将被视为 0
+                    <span className="text-[#ff3d7f]">{t("Tip")}: </span>{t("LimitHint")}
                   </div>
                 </div>
               </div>
@@ -994,7 +1004,7 @@ const AdminPanel = ({
               {usersLoading ? (
                 Array.from({ length: 8 }).map((_, i) => <div key={i} className="bh-skeleton" style={{ height: 54 }} />)
               ) : filteredUsers.length === 0 ? (
-                <div className="text-sm text-zinc-500 text-center py-10">暂无用户</div>
+                <div className="text-sm text-zinc-500 text-center py-10">{t("NoUsers")}</div>
               ) : (
                 filteredUsers.map((u) => (
                   <div
@@ -1023,14 +1033,14 @@ const AdminPanel = ({
                         <div className="text-sm text-white font-medium truncate">{u.email || u.id}</div>
                         <div className="text-[10px] text-zinc-500 font-mono truncate mt-1">{u.id}</div>
                         <div className="text-[10px] text-zinc-500 mt-1">
-                          今日对话次数：<span className="text-zinc-300">{u.daily_turn_count ?? 0}</span>
+                          {t("DailyTurns")}：<span className="text-zinc-300">{u.daily_turn_count ?? 0}</span>
                           <span className="mx-2 text-zinc-600">|</span>
-                          历史总数：<span className="text-zinc-300">{u.total_turn_count ?? 0}</span>
+                          {t("TotalTurns")}：<span className="text-zinc-300">{u.total_turn_count ?? 0}</span>
                         </div>
                         <div className="text-[10px] text-zinc-500 mt-1">
-                          覆盖限制：
+                          {t("OverrideLimit")}：
                           <span className="text-zinc-300">
-                            会话 {u.session_turn_limit_override ?? '默认'} / 今日 {u.daily_turn_limit_override ?? '默认'}
+                            {t("Session")} {u.session_turn_limit_override ?? t("Default")} / {t("Daily")} {u.daily_turn_limit_override ?? t("Default")}
                           </span>
                         </div>
                       </div>
@@ -1043,8 +1053,8 @@ const AdminPanel = ({
                             onClickEditUserLimits(u);
                           }}
                           className="p-2 rounded-xl bh-btn-secondary text-zinc-200 hover:text-white"
-                          title="设置该用户限制"
-                          aria-label="设置该用户限制"
+                          title={t("SetUserLimit")}
+                          aria-label={t("SetUserLimit")}
                         >
                           <Terminal size={16} />
                         </button>
@@ -1057,8 +1067,8 @@ const AdminPanel = ({
                           }}
                           disabled={!!userDeletingId}
                           className="p-2 rounded-xl bh-btn-secondary text-zinc-200 hover:text-white disabled:opacity-50"
-                          title="删除用户"
-                          aria-label="删除用户"
+                          title={t("DeleteUser")}
+                          aria-label={t("DeleteUser")}
                         >
                           {userDeletingId === u.id ? <Loader2 size={16} className="animate-spin" /> : <Trash2 size={16} />}
                         </button>
@@ -1067,7 +1077,7 @@ const AdminPanel = ({
                     {u.is_admin && (
                       <div className="mt-2 inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-lg bg-[#ff3d7f]/10 border border-[#ff3d7f]/20 text-[#ff3d7f]">
                         <Shield size={12} />
-                        管理员
+                        {t("Admin")}
                       </div>
                     )}
                   </div>
@@ -1079,12 +1089,12 @@ const AdminPanel = ({
           {/* Right: Chats + Detail */}
           <section className="overflow-hidden flex flex-col">
             <div className="p-4 border-b border-white/5 flex items-center justify-between">
-              <div className="text-white font-bold">对话列表</div>
+              <div className="text-white font-bold">{t("ChatList")}</div>
               <button
                 onClick={() => loadChats(selectedUserId)}
                 className="py-2 px-3 rounded-xl text-sm font-medium bh-btn-secondary text-white"
               >
-                刷新
+                {t("Refresh")}
               </button>
             </div>
 
@@ -1102,7 +1112,7 @@ const AdminPanel = ({
                 {chatsLoading ? (
                   Array.from({ length: 10 }).map((_, i) => <div key={i} className="bh-skeleton" style={{ height: 64 }} />)
                 ) : chats.length === 0 ? (
-                  <div className="text-sm text-zinc-500 text-center py-10">暂无对话</div>
+                  <div className="text-sm text-zinc-500 text-center py-10">{t("NoChats")}</div>
                 ) : (
                   chats.map((c) => (
                     <div
@@ -1128,7 +1138,7 @@ const AdminPanel = ({
                     >
                       <div className="flex items-start justify-between gap-3">
                         <div className="text-sm text-white font-medium truncate min-w-0 flex-1">
-                          {c.title || '未命名对话'}
+                          {c.title || t("UntitledChat")}
                         </div>
                         <button
                           type="button"
@@ -1138,15 +1148,15 @@ const AdminPanel = ({
                           }}
                           disabled={!!chatDeletingId}
                           className="p-2 rounded-xl bh-btn-secondary text-zinc-200 hover:text-white disabled:opacity-50"
-                          title="删除对话"
-                          aria-label="删除对话"
+                          title={t("DeleteChat")}
+                          aria-label={t("DeleteChat")}
                         >
                           {chatDeletingId === c.id ? <Loader2 size={16} className="animate-spin" /> : <Trash2 size={16} />}
                         </button>
                       </div>
                       <div className="text-[10px] text-zinc-500 font-mono truncate mt-1">chat: {c.id}</div>
                       <div className="text-[10px] text-zinc-500 font-mono truncate mt-1">user: {c.user_id}</div>
-                      <div className="text-[10px] text-zinc-500 mt-1">对话次数：{c.turn_count ?? 0}</div>
+                      <div className="text-[10px] text-zinc-500 mt-1">{t("SessionTurns")}：{c.turn_count ?? 0}</div>
                       <div className="text-[10px] text-zinc-600 mt-1">{new Date(c.created_at).toLocaleString()}</div>
                     </div>
                   ))
@@ -1156,7 +1166,7 @@ const AdminPanel = ({
               {/* Chat detail */}
               <div className="overflow-y-auto p-4">
                 {!selectedChatId ? (
-                  <div className="text-zinc-500 text-sm text-center py-16">选择一条对话查看内容</div>
+                  <div className="text-zinc-500 text-sm text-center py-16">{t("SelectChatToView")}</div>
                 ) : chatLoading ? (
                   <div className="space-y-3">
                     <div className="bh-skeleton" style={{ height: 18, width: '60%' }} />
@@ -1164,11 +1174,11 @@ const AdminPanel = ({
                     <div className="bh-skeleton" style={{ height: 120 }} />
                   </div>
                 ) : !chatDetail ? (
-                  <div className="text-zinc-500 text-sm text-center py-16">未找到对话</div>
+                  <div className="text-zinc-500 text-sm text-center py-16">{t("ChatNotFound")}</div>
                 ) : (
                   <div>
                     <div className="mb-4">
-                      <div className="text-white font-bold text-lg truncate">{chatDetail.title || '未命名对话'}</div>
+                      <div className="text-white font-bold text-lg truncate">{chatDetail.title || t("UntitledChat")}</div>
                       <div className="text-[11px] text-zinc-500 font-mono mt-1">chat: {chatDetail.id}</div>
                       <div className="text-[11px] text-zinc-500 font-mono mt-1">user: {chatDetail.user_id}</div>
                       <div className="text-[11px] text-zinc-500 font-mono mt-1">turn_count: {chatDetail.turn_count ?? 0}</div>
@@ -1249,6 +1259,7 @@ const SIDEBAR_COLLAPSED_STORAGE_KEY = 'booth_hunter_sidebar_collapsed';
 
 // Auth Modal Component
 const AuthModal = ({ isOpen, onClose, onLogin, canClose = true }: { isOpen: boolean; onClose: () => void; onLogin: () => void; canClose?: boolean }) => {
+  const { t } = useTranslation();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [isLogin, setIsLogin] = useState(true);
@@ -1284,9 +1295,9 @@ const AuthModal = ({ isOpen, onClose, onLogin, canClose = true }: { isOpen: bool
         const identities = (data as any)?.user?.identities;
         const isExistingAccount = Array.isArray(identities) && identities.length === 0;
         if (isExistingAccount) {
-          setError("该邮箱已注册，请直接登录。如果你还没验证邮箱：登录后会看到验证提示，可重新发送验证邮件。");
+          setError(t("EmailAlreadyRegistered"));
         } else {
-          setError("注册成功！请前往邮箱点击验证链接完成验证，然后再回来登录。");
+          setError(t("RegisterSuccess"));
         }
         setIsLogin(true);
       }
@@ -1301,9 +1312,9 @@ const AuthModal = ({ isOpen, onClose, onLogin, canClose = true }: { isOpen: bool
     <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/80 backdrop-blur-md p-4">
       <div className="w-full max-w-md p-6 relative bh-surface-strong rounded-3xl bh-anim-pop">
         <div className="flex justify-between items-center mb-6">
-          <h2 className="text-xl font-bold text-white">{isLogin ? "登录" : "注册"}</h2>
+          <h2 className="text-xl font-bold text-white">{isLogin ? t("Login") : t("Register")}</h2>
           {canClose && (
-            <button onClick={onClose} className="text-zinc-400 hover:text-white bh-icon-btn p-2" aria-label="关闭登录弹窗">
+            <button onClick={onClose} className="text-zinc-400 hover:text-white bh-icon-btn p-2" aria-label={t("Close")}>
               <X size={20} />
             </button>
           )}
@@ -1311,7 +1322,7 @@ const AuthModal = ({ isOpen, onClose, onLogin, canClose = true }: { isOpen: bool
         
         {!canClose && (
           <div className="mb-6 text-sm text-zinc-400 bg-zinc-900/50 p-3 rounded-lg border border-zinc-800/50">
-            欢迎！请先登录或注册以继续使用 Booth Hunter。
+            {t("LoginPrompt")}
           </div>
         )}
 
@@ -1324,7 +1335,7 @@ const AuthModal = ({ isOpen, onClose, onLogin, canClose = true }: { isOpen: bool
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label className="block text-xs font-medium text-zinc-400 mb-1">邮箱</label>
+            <label className="block text-xs font-medium text-zinc-400 mb-1">{t("Email")}</label>
             <input
               type="email"
               value={email}
@@ -1334,7 +1345,7 @@ const AuthModal = ({ isOpen, onClose, onLogin, canClose = true }: { isOpen: bool
             />
           </div>
           <div>
-            <label className="block text-xs font-medium text-zinc-400 mb-1">密码</label>
+            <label className="block text-xs font-medium text-zinc-400 mb-1">{t("Password")}</label>
             <input
               type="password"
               value={password}
@@ -1348,17 +1359,17 @@ const AuthModal = ({ isOpen, onClose, onLogin, canClose = true }: { isOpen: bool
             disabled={loading}
             className="w-full text-white font-bold py-3 rounded-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed bh-btn-primary"
           >
-            {loading ? <Loader2 size={18} className="animate-spin mx-auto" /> : (isLogin ? "登录" : "注册")}
+            {loading ? <Loader2 size={18} className="animate-spin mx-auto" /> : (isLogin ? t("Login") : t("Register"))}
           </button>
         </form>
 
         <div className="mt-4 text-center text-sm text-zinc-400">
-          {isLogin ? "没有账号？" : "已有账号？"}
+          {isLogin ? t("NoAccount") : t("HasAccount")}
           <button
             onClick={() => setIsLogin(!isLogin)}
             className="ml-1 text-[#fc4d50] hover:underline font-medium"
           >
-            {isLogin ? "立即注册" : "去登录"}
+            {isLogin ? t("RegisterNow") : t("GoLogin")}
           </button>
         </div>
       </div>
@@ -1398,6 +1409,7 @@ const Sidebar = ({
   totalTurnLimit?: number;
   reducedMotion: boolean;
 }) => {
+  const { t } = useTranslation();
   return (
     <>
       {/* Overlay for mobile */}
@@ -1435,21 +1447,21 @@ const Sidebar = ({
             <button
               onClick={() => { onNewChat(); if(window.innerWidth < 768) onClose(); }}
               className={`w-full text-white flex items-center ${collapsed ? 'justify-center h-11 px-0' : 'gap-2 px-4 py-3'} rounded-2xl transition-all font-medium bh-btn-secondary`}
-              aria-label="新对话"
-              title="新对话"
+              aria-label={t("NewChat")}
+              title={t("NewChat")}
             >
               <Plus size={18} />
-              {!collapsed && <span>新对话</span>}
+              {!collapsed && <span>{t("NewChat")}</span>}
             </button>
           </div>
 
           <div className={`flex-grow overflow-y-auto ${collapsed ? 'px-2' : 'px-4'} space-y-1`}>
             {!collapsed && (
-              <h3 className="px-4 text-[10px] font-bold text-zinc-500 uppercase tracking-[0.2em] mb-4 mt-6">历史记录</h3>
+              <h3 className="px-4 text-[10px] font-bold text-zinc-500 uppercase tracking-[0.2em] mb-4 mt-6">{t("History")}</h3>
             )}
             {!user ? (
                <div className="px-4 text-sm text-zinc-500 py-4 text-center italic">
-                 登录后可保存和查看历史记录
+                 {t("LoginToSave")}
                </div>
             ) : sessionsLoading ? (
                <div className={`${collapsed ? 'px-0' : 'px-4'} space-y-2 pb-4`}>
@@ -1459,7 +1471,7 @@ const Sidebar = ({
                </div>
             ) : sessions.length === 0 ? (
                <div className="px-4 text-sm text-zinc-500 py-4 text-center italic">
-                 暂无历史记录
+                 {t("NoHistory")}
                </div>
             ) : (
               sessions.map((session, i) => (
@@ -1470,7 +1482,7 @@ const Sidebar = ({
                 >
                   <button
                     onClick={() => { onSelectSession(session.id); if(window.innerWidth < 768) onClose(); }}
-                    title={session.title || "未命名对话"}
+                    title={session.title || t("UntitledChat")}
                     className={`flex-grow ${collapsed ? 'h-11 px-0 justify-center text-center' : 'px-4 py-3 text-left'} rounded-2xl text-sm flex items-center ${collapsed ? '' : 'gap-3'} transition-all ${
                       currentSessionId === session.id 
                         ? "bg-[#fc4d50]/10 text-[#fc4d50] border border-[#fc4d50]/20" 
@@ -1480,7 +1492,7 @@ const Sidebar = ({
                     <MessageSquare size={16} className="flex-shrink-0" />
                     {!collapsed && (
                       <span className="truncate text-left">
-                        {session.title?.slice(0, 10) || "未命名对话"}
+                        {session.title?.slice(0, 15) || t("UntitledChat")}
                         {(session.title?.length || 0) > 10 ? "..." : ""}
                       </span>
                     )}
@@ -1489,8 +1501,8 @@ const Sidebar = ({
                     <button
                       onClick={(e) => { e.stopPropagation(); onDeleteSession(session.id); }}
                       className="p-2 text-zinc-600 hover:text-[#ff3d7f] hover:bg-zinc-800 rounded-lg transition-colors opacity-0 group-hover:opacity-100"
-                      title="删除对话"
-                      aria-label="删除对话"
+                      title={t("DeleteChat")}
+                      aria-label={t("DeleteChat")}
                     >
                       <Trash2 size={14} />
                     </button>
@@ -1518,15 +1530,15 @@ const Sidebar = ({
                         <span className="text-sm text-white truncate font-medium">{user.email?.split('@')[0]}</span>
                         <span className="text-[10px] text-zinc-500 truncate">{user.email}</span>
                         <span className="text-[10px] text-zinc-600 truncate mt-0.5">
-                          今日对话次数 {totalTurnCount ?? '—'} / {formatLimit(totalTurnLimit)}
+                          {t("DailyTurns")} {totalTurnCount ?? '—'} / {formatLimit(totalTurnLimit)}
                         </span>
                       </div>
                    </div>
                    <button 
                     onClick={async () => { await supabase.auth.signOut(); }}
                     className="text-zinc-500 hover:text-white p-2"
-                    title="退出登录"
-                    aria-label="退出登录"
+                    title={t("Logout")}
+                    aria-label={t("Logout")}
                    >
                      <LogOut size={18} />
                    </button>
@@ -1537,10 +1549,10 @@ const Sidebar = ({
                 <button
                   onClick={onOpenAuth}
                   className={`w-full flex items-center justify-center ${collapsed ? '' : 'gap-2'} text-zinc-300 hover:text-white py-2 rounded-lg hover:bg-zinc-800 transition-colors text-sm font-medium`}
-                  aria-label="登录 / 注册"
+                  aria-label={t("LoginRegister")}
                 >
                   <UserCircle size={18} />
-                  {!collapsed && <span>登录 / 注册</span>}
+                  {!collapsed && <span>{t("LoginRegister")}</span>}
                 </button>
               </div>
             )}
@@ -1624,6 +1636,7 @@ const AssetCard = React.memo(({
   maxTags?: number;
   imageHeightClassName?: string;
 }) => {
+  const { t } = useTranslation();
   const [imgError, setImgError] = useState(false);
 
   // Strict black + pink theme: avoid dynamic multi-color gradients.
@@ -1687,7 +1700,7 @@ const AssetCard = React.memo(({
               rel="noopener noreferrer"
               className="flex items-center gap-1.5 text-xs font-bold text-white px-4 py-2 rounded-xl bh-btn-primary"
             >
-              详情
+              {t("AssetDetails")}
               <ExternalLink size={12} />
             </a>
         </div>
@@ -1721,6 +1734,7 @@ const AssetCardSkeleton = React.memo(({
 });
 
 const ChatMessageBubble = React.memo(({ message, largeLayout }: { message: Message; largeLayout: boolean }) => {
+  const { t } = useTranslation();
   const isUser = message.role === 'user';
   
   // Filter out JSON code blocks from display text
@@ -1742,7 +1756,7 @@ const ChatMessageBubble = React.memo(({ message, largeLayout }: { message: Messa
           <div className={`w-9 h-9 rounded-2xl flex items-center justify-center shadow-lg border border-white/5 ${isUser ? 'bg-white/10' : 'bh-avatar-accent'}`}>
             {isUser ? <User size={18} /> : <Bot size={18} />}
           </div>
-          <span className="text-sm font-medium text-zinc-400">{isUser ? "你" : "璃璃"}</span>
+          <span className="text-sm font-medium text-zinc-400">{isUser ? t("You") : t("Lili")}</span>
         </div>
 
         {/* Bubble Content with Markdown */}
@@ -1758,12 +1772,12 @@ const ChatMessageBubble = React.memo(({ message, largeLayout }: { message: Messa
           {/* Tool Call Indicator */}
           {message.toolCall && (
             <div className={`mb-3 flex items-center gap-2 text-xs font-mono px-3 py-1.5 rounded-lg border transition-all duration-300 ${
-              message.toolCall.includes("重试") 
+              message.toolCall.includes(t("Retry")) 
                 ? "text-[#ff3d7f] bg-[#ff3d7f]/10 border-[#ff3d7f]/25 animate-pulse" 
                 : "text-[#fc4d50]/90 bg-[#fc4d50]/10 border-[#fc4d50]/20"
             }`}>
-              <Hammer size={12} className={message.toolCall.includes("重试") ? "animate-spin" : ""} />
-              <span>调用工具: {message.toolCall}</span>
+              <Hammer size={12} className={message.toolCall.includes(t("Retry")) ? "animate-spin" : ""} />
+              <span>{t("ToolCall")}: {message.toolCall}</span>
             </div>
           )}
 
@@ -1790,7 +1804,7 @@ const ChatMessageBubble = React.memo(({ message, largeLayout }: { message: Messa
           {/* Subtle turn meta for assistant replies */}
           {!isUser && message.turnMeta && (
             <div className="mt-3 text-[11px] text-zinc-500 font-mono opacity-70 select-none">
-              本会话 {message.turnMeta.session_turn_count ?? '—'}/{formatLimit(message.turnMeta.session_limit)}
+              {t("SessionTurns")} {message.turnMeta.session_turn_count ?? '—'}/{formatLimit(message.turnMeta.session_limit)}
             </div>
           )}
         </div>
@@ -1822,7 +1836,7 @@ const ChatMessageBubble = React.memo(({ message, largeLayout }: { message: Messa
                 </DraggableContainer>
                 <div className="flex items-center justify-center gap-2 text-xs text-zinc-600 mt-3 opacity-60 font-medium">
                   <MoveHorizontal size={12} />
-                  <span>按住卡片左右拖动查看更多</span>
+                  <span>{t("DragHint")}</span>
                 </div>
               </>
             )}
@@ -1883,6 +1897,7 @@ const MessageSkeletonList = ({ count = 6 }: { count?: number }) => {
 };
 
 const App = () => {
+  const { t, i18n } = useTranslation();
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [image, setImage] = useState<string | null>(null);
@@ -1901,8 +1916,8 @@ const App = () => {
     const setFp = async () => {
       try {
         const fp = await FingerprintJS.load();
-        const { visitorId } = await fp.get();
-        setVisitorId(visitorId);
+        const { visitorId: visitorIdVal } = await fp.get();
+        setVisitorId(visitorIdVal);
       } catch (e) {
         console.error('Fingerprint failed:', e);
       }
@@ -1929,9 +1944,9 @@ const App = () => {
 
   // Toasts
   const [toasts, setToasts] = useState<Toast[]>([]);
-  const pushToast = (t: Omit<Toast, 'id'>) => {
+  const pushToast = (tIn: Omit<Toast, 'id'>) => {
     const id = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
-    const toast: Toast = { id, timeoutMs: 4200, ...t };
+    const toast: Toast = { id, timeoutMs: 4200, ...tIn };
     setToasts((prev) => [toast, ...prev].slice(0, 4));
     const ms = toast.timeoutMs ?? 4200;
     if (ms > 0) {
@@ -1940,15 +1955,15 @@ const App = () => {
       }, ms);
     }
   };
-  const dismissToast = (id: string) => setToasts((prev) => prev.filter((t) => t.id !== id));
+  const dismissToast = (id: string) => setToasts((prev) => prev.filter((tItem) => tItem.id !== id));
 
   // Confirm modal (async)
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [confirmOptions, setConfirmOptions] = useState<ConfirmOptions>({
-    title: '确认',
+    title: t("Confirm"),
     message: '',
-    confirmText: '确定',
-    cancelText: '取消',
+    confirmText: t("Confirm"),
+    cancelText: t("Cancel"),
   });
   const confirmResolverRef = useRef<((v: boolean) => void) | null>(null);
   const confirmAsync = (opts: ConfirmOptions): Promise<boolean> => {
@@ -2243,7 +2258,7 @@ const App = () => {
       setMessageAnimationNonce((n) => n + 1);
     } catch (e: any) {
       console.error('Error fetching chat messages:', e);
-      pushToast({ type: 'error', title: '加载失败', message: '加载对话失败，请稍后重试' });
+      pushToast({ type: 'error', title: t("LoadFailed"), message: t("LoadChatsFailedGeneral") });
     } finally {
       setSessionMessagesLoading(false);
     }
@@ -2259,10 +2274,10 @@ const App = () => {
   const handleDeleteSession = async (id: string) => {
     if (!user || !isUserEmailVerified(user)) return;
     const ok = await confirmAsync({
-      title: '删除对话记录',
-      message: '确定要删除这条对话记录吗？\n\n此操作不可恢复。',
-      confirmText: '删除',
-      cancelText: '取消',
+      title: t("DeleteChat"),
+      message: t("DeleteChatConfirm"),
+      confirmText: t("Delete"),
+      cancelText: t("Cancel"),
       destructive: true,
     });
     if (!ok) return;
@@ -2284,7 +2299,7 @@ const App = () => {
       }
     } catch (e) {
       console.error("Delete error:", e);
-      pushToast({ type: 'error', title: '删除失败', message: '删除失败，请稍后重试' });
+      pushToast({ type: 'error', title: t("DeleteFailed"), message: t("DeleteChatFailedGeneral") });
     }
   };
 
@@ -2295,7 +2310,7 @@ const App = () => {
       setMessages([{
         id: 'init',
         role: 'model',
-        text: '你好喵！我是璃璃～\n\n我是由 Oniya 开发的 Booth 商品搜索助手，随时愿意为你提供帮助喔！请告诉我你想要找的 VRChat 资产吧！',
+        text: `${t("Welcome")}\n\n${t("WelcomeDesc")}`,
         timestamp: Date.now()
       }]);
     }
@@ -2357,7 +2372,7 @@ const App = () => {
         const original = await blobToDataUrl(file);
         setImage(original);
       } catch {
-        pushToast({ type: 'error', title: '图片读取失败', message: '请重试或更换图片' });
+        pushToast({ type: 'error', title: t("ImageReadFailed"), message: t("ImageReadFailedDesc") });
       }
     } finally {
       setImageProcessing(false);
@@ -2467,7 +2482,11 @@ const App = () => {
             return {};
           })()),
         },
-        body: JSON.stringify({ messages: updatedMessages, chat_id: sessionId }),
+        body: JSON.stringify({ 
+          messages: updatedMessages, 
+          chat_id: sessionId,
+          language: i18n.language 
+        }),
         signal: abortController.signal,
       });
 
@@ -2485,7 +2504,7 @@ const App = () => {
 
           if (reason === 'limit_reached' || reason === 'invalid_visitor_id') {
             setMessages((prev) => prev.map((m) => (m.id === modelMsgId
-              ? { ...m, text: '体验次数已用完，请登录或注册以继续使用喵！', isStreaming: false, status: undefined, turnMeta }
+              ? { ...m, text: t("GuestLimitReached"), isStreaming: false, status: undefined, turnMeta }
               : m
             )));
             setIsAuthOpen(true);
@@ -2493,11 +2512,11 @@ const App = () => {
           }
 
           const base = reason === 'session_limit'
-            ? `本会话已达到对话次数上限（${(data as any)?.session_turn_count}/${formatLimit((data as any)?.session_limit)}）`
-            : `你已达到今日对话次数上限（${(data as any)?.daily_turn_count}/${formatLimit((data as any)?.daily_limit)}）。`;
+            ? `${t("SessionLimitReached")}（${(data as any)?.session_turn_count}/${formatLimit((data as any)?.session_limit)}）`
+            : `${t("DailyLimitReached")}（${(data as any)?.daily_turn_count}/${formatLimit((data as any)?.daily_limit)}）。`;
 
           const hint = reason === 'session_limit'
-            ? '\n\n点击左侧「新对话」来继续对话吧！'
+            ? `\n\n${t("ClickNewChat")}`
             : '';
 
           setMessages((prev) => prev.map((m) => (m.id === modelMsgId
@@ -2507,9 +2526,9 @@ const App = () => {
           return;
         }
 
-        const errMsg = (data as any)?.error || response.statusText || '请求失败';
+        const errMsg = (data as any)?.error || response.statusText || t("LoadFailed");
         setMessages((prev) => prev.map((m) => (m.id === modelMsgId
-          ? { ...m, text: `请求失败：${errMsg}`, isStreaming: false, status: undefined, turnMeta }
+          ? { ...m, text: errMsg, isStreaming: false, status: undefined, turnMeta }
           : m
         )));
         return;
@@ -2647,28 +2666,28 @@ const App = () => {
       // Save to DB in background
       saveCurrentSession(finalMessages, sessionId).catch(e => console.error("Auto-save failed:", e));
 
-    } catch (err: any) {
-      // 用户点击“停止生成”时：fetch 会抛 AbortError
-      const isAbort = err?.name === 'AbortError' || stopRequestedRef.current;
-      if (isAbort) {
-        // 尽量保留已收到的内容（如果 response 已经开始流式返回的话）
-        // @ts-ignore - accumulatedText/streamBuffer 在上方 try 块作用域内
-        const partial = String((typeof accumulatedText !== 'undefined' ? accumulatedText : '') + (typeof streamBuffer !== 'undefined' ? streamBuffer : '')).trim();
-        const finalText = partial ? (partial + "\n\n（已停止生成）") : "（已停止生成）";
+      } catch (err: any) {
+        // 用户点击“停止生成”时：fetch 会抛 AbortError
+        const isAbort = err?.name === 'AbortError' || stopRequestedRef.current;
+        if (isAbort) {
+          // 尽量保留已收到的内容（如果 response 已经开始流式返回的话）
+          // @ts-ignore - accumulatedText/streamBuffer 在上方 try 块作用域内
+          const partial = String((typeof accumulatedText !== 'undefined' ? accumulatedText : '') + (typeof streamBuffer !== 'undefined' ? streamBuffer : '')).trim();
+          const finalTextStopped = partial ? `${partial}\n\n（${t("Stopped")}）` : `（${t("Stopped")}）`;
+          setMessages((prev) => prev.map((m) => (m.id === modelMsgId
+            ? { ...m, text: finalTextStopped, isStreaming: false, isJsonStreaming: false, status: undefined }
+            : m
+          )));
+          return;
+        }
+  
+        console.error(err);
+        const errMsgText = err?.message || t("ErrorOccurred");
         setMessages((prev) => prev.map((m) => (m.id === modelMsgId
-          ? { ...m, text: finalText, isStreaming: false, isJsonStreaming: false, status: undefined }
+          ? { ...m, text: errMsgText, isStreaming: false, isJsonStreaming: false, status: undefined }
           : m
         )));
-        return;
-      }
-
-      console.error(err);
-      const msg = err?.message || "出错了！你可以发送“重试”来再次尝试。";
-      setMessages((prev) => prev.map((m) => (m.id === modelMsgId
-        ? { ...m, text: msg, isStreaming: false, isJsonStreaming: false, status: undefined }
-        : m
-      )));
-    } finally {
+      } finally {
       chatAbortRef.current = null;
       setCanStop(false);
       setLoading(false);
@@ -2704,8 +2723,8 @@ const App = () => {
                 else setIsSidebarOpen(true);
               }}
               className="text-zinc-300 hover:text-white bh-icon-btn p-2"
-              aria-label={window.innerWidth >= 768 ? (sidebarCollapsed ? "展开侧边栏" : "折叠侧边栏") : "打开侧边栏"}
-              title={window.innerWidth >= 768 ? (sidebarCollapsed ? "展开侧边栏" : "折叠侧边栏") : "打开侧边栏"}
+              aria-label={window.innerWidth >= 768 ? (sidebarCollapsed ? t("ExpandSidebar") : t("CollapseSidebar")) : t("OpenSidebar")}
+              title={window.innerWidth >= 768 ? (sidebarCollapsed ? t("ExpandSidebar") : t("CollapseSidebar")) : t("OpenSidebar")}
              >
                <Menu size={24} />
              </button>
@@ -2719,12 +2738,44 @@ const App = () => {
           </div>
 
           <div className="flex items-center gap-2">
+            {/* Language Switcher */}
+            <div className="relative group mr-2">
+              <button 
+                className="p-2 text-zinc-300 hover:text-white bh-icon-btn flex items-center gap-1.5"
+                aria-label={t("Language")}
+                title={t("Language")}
+              >
+                <Globe size={20} />
+                <span className="text-xs font-bold hidden sm:inline">{i18n.language.split('-')[0].toUpperCase()}</span>
+              </button>
+              <div className="absolute right-0 top-full mt-1 w-32 py-2 bh-surface-strong border border-white/10 rounded-2xl shadow-2xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-50">
+                <button 
+                  onClick={() => i18n.changeLanguage('zh')}
+                  className={`w-full px-4 py-2 text-left text-sm hover:bg-white/5 transition-colors ${i18n.language.startsWith('zh') ? 'text-[#fc4d50] font-bold' : 'text-zinc-300'}`}
+                >
+                  {t("ZH")}
+                </button>
+                <button 
+                  onClick={() => i18n.changeLanguage('en')}
+                  className={`w-full px-4 py-2 text-left text-sm hover:bg-white/5 transition-colors ${i18n.language.startsWith('en') ? 'text-[#fc4d50] font-bold' : 'text-zinc-300'}`}
+                >
+                  {t("EN")}
+                </button>
+                <button 
+                  onClick={() => i18n.changeLanguage('ja')}
+                  className={`w-full px-4 py-2 text-left text-sm hover:bg-white/5 transition-colors ${i18n.language.startsWith('ja') ? 'text-[#fc4d50] font-bold' : 'text-zinc-300'}`}
+                >
+                  {t("JP")}
+                </button>
+              </div>
+            </div>
+
             {isAdmin && (
               <button
                 onClick={() => setIsAdminPanelOpen(true)}
                 className="p-2 text-zinc-300 hover:text-white bh-icon-btn"
-                aria-label="打开管理员面板"
-                title="管理员面板"
+                aria-label={t("AdminPanel")}
+                title={t("AdminPanel")}
               >
                 <Shield size={20} />
               </button>
@@ -2734,7 +2785,7 @@ const App = () => {
               href="https://github.com/oniyakun/Booth-Hunter"
               target="_blank"
               rel="noopener noreferrer"
-              aria-label="GitHub 项目"
+              aria-label={t("GithubProject")}
               title="GitHub"
               className="p-2 text-zinc-300 hover:text-white bh-icon-btn"
             >
@@ -2775,7 +2826,7 @@ const App = () => {
                      <div className="w-9 h-9 rounded-full bg-[#fc4d50] flex items-center justify-center shadow-lg border border-white/5">
                        <Loader2 size={18} className="animate-spin text-white" />
                      </div>
-                     <span className="text-sm font-medium text-zinc-400">正在思考...</span>
+                     <span className="text-sm font-medium text-zinc-400">{t("Thinking")}</span>
                    </div>
                  </div>
               </div>
@@ -2786,7 +2837,7 @@ const App = () => {
                  <div className="flex flex-col items-start max-w-[85%]">
                    <div className="flex items-center gap-2 mb-2 ml-12 text-[#fc4d50]/80 text-xs font-mono">
                       <Hammer size={12} className="animate-bounce" />
-                      <span>正在抓取 Booth 数据...</span>
+                      <span>{t("ToolCalling")}</span>
                    </div>
                  </div>
               </div>
@@ -2805,7 +2856,7 @@ const App = () => {
                   <button 
                     onClick={() => setImage(null)}
                     className="absolute -top-2 -right-2 text-white rounded-full p-1.5 opacity-80 hover:opacity-100 transition-opacity bh-badge"
-                    aria-label="移除图片"
+                    aria-label={t("RemoveImage")}
                   >
                     <X size={14} />
                   </button>
@@ -2837,7 +2888,7 @@ const App = () => {
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
                   disabled={!canUseApp}
-                  placeholder={canUseApp ? "描述你想要的素材 (例如: 适用于巧克力的泳衣)..." : (user ? "请先登录并完成邮箱验证后继续使用" : "正在加载...")}
+                  placeholder={canUseApp ? t("SearchPlaceholder") : (user ? t("VerifyEmail") : t("Loading"))}
                   className="w-full rounded-2xl px-5 py-4 pr-14 text-base focus:outline-none transition-all placeholder-zinc-500 bh-input"
                 />
                 <button
@@ -2849,15 +2900,15 @@ const App = () => {
                       ? 'bg-zinc-800 hover:bg-zinc-700'
                       : 'bh-btn-primary disabled:opacity-50 disabled:bg-zinc-700'
                   }`}
-                  aria-label={canStop ? "停止生成" : "发送"}
-                  title={canStop ? "停止生成" : "发送"}
+                  aria-label={canStop ? t("Stop") : t("Send")}
+                  title={canStop ? t("Stop") : t("Send")}
                 >
                   {canStop ? <Pause size={18} /> : <Send size={18} />}
                 </button>
               </div>
             </form>
             <p className="text-center text-[10px] text-zinc-600 mt-3 font-medium">
-              AI 生成内容可能不准确，请以 Booth 实际页面为准。
+              {t("Disclaimer")}
             </p>
           </div>
         </footer>
@@ -2876,10 +2927,9 @@ const App = () => {
       {!authLoading && user && !emailVerified && (
         <div className="fixed inset-0 z-[65] flex items-center justify-center bg-black/90 backdrop-blur-md p-4">
           <div className="bg-[#18181b] border border-zinc-800 rounded-2xl w-full max-w-md p-6 shadow-2xl">
-            <h2 className="text-xl font-bold text-white mb-3">请先验证邮箱</h2>
+            <h2 className="text-xl font-bold text-white mb-3">{t("VerifyEmail")}</h2>
             <p className="text-sm text-zinc-400 leading-relaxed mb-5">
-              你的账号 <span className="text-zinc-200 font-medium">{user.email}</span> 尚未通过邮箱验证。
-              为了继续使用 Booth Hunter，请前往邮箱点击验证链接。
+              {t("VerifyEmailDesc", { email: user.email })}
             </p>
 
             <div className="flex gap-3">
@@ -2888,14 +2938,14 @@ const App = () => {
                   try {
                     const { error } = await supabase.auth.resend({ type: "signup", email: user.email });
                     if (error) throw error;
-                    pushToast({ type: 'success', title: '已发送', message: '已重新发送验证邮件，请检查收件箱/垃圾箱' });
+                    pushToast({ type: 'success', title: 'Success', message: 'Resent verification email' });
                   } catch (e: any) {
-                    pushToast({ type: 'error', title: '发送失败', message: e?.message || '请稍后重试' });
+                    pushToast({ type: 'error', title: 'Error', message: e?.message || 'Failed' });
                   }
                 }}
                 className="flex-1 bg-zinc-800 hover:bg-zinc-700 text-white font-bold py-2.5 rounded-lg transition-colors border border-zinc-700"
               >
-                重新发送验证邮件
+                {t("ResendEmail")}
               </button>
               <button
                 onClick={async () => {
@@ -2904,9 +2954,9 @@ const App = () => {
                   setUser(data.user ?? null);
                 }}
                 className="bg-zinc-900 hover:bg-zinc-800 text-zinc-200 font-bold py-2.5 px-4 rounded-lg transition-colors border border-zinc-700"
-                title="我已完成验证，刷新状态"
+                title={t("Refresh")}
               >
-                刷新
+                {t("Refresh")}
               </button>
             </div>
 
@@ -2916,7 +2966,7 @@ const App = () => {
               }}
               className="mt-4 w-full text-sm text-zinc-400 hover:text-white py-2 rounded-lg hover:bg-zinc-900 transition-colors"
             >
-              退出登录
+              {t("Logout")}
             </button>
           </div>
         </div>
@@ -2943,7 +2993,7 @@ const App = () => {
           try {
             closeLimitModal(draft);
           } catch (e: any) {
-            pushToast({ type: 'error', title: '输入错误', message: e?.message || '请输入数字' });
+            pushToast({ type: 'error', title: t("InputError"), message: e?.message || t("PleaseEnterNumber") });
           }
         }}
       />

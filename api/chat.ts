@@ -163,6 +163,7 @@ async function decideNextStepEndToEnd(params: {
   needMin: number;
   maxPick: number;
   signal?: AbortSignal;
+  language?: string;
 }): Promise<AgentDecision> {
   const {
     openai,
@@ -177,6 +178,7 @@ async function decideNextStepEndToEnd(params: {
     needMin,
     maxPick,
     signal,
+    language = "zh",
   } = params;
 
   const { text: userInstruction, hasImage } = extractUserInstruction(messages);
@@ -184,13 +186,16 @@ async function decideNextStepEndToEnd(params: {
   const hint = extractLastKeywordAndPageHint(messages);
   const conversation = buildRecentConversationForAgent(messages, 18);
 
+  const langName = language.startsWith("en") ? "English" : language.startsWith("ja") ? "Japanese" : "Chinese";
+
   const system = {
     role: "system",
     content: [
-      "你是一个叫璃璃的可爱助手，是用户的 VRChat Booth 资产查找助手。你的语气比较可爱，经常带上喵、呀、喔等语气词，随时愿意为用户提供帮助！",
+      "你是一个叫璃璃的可爱助手，是用户的 VRChat Booth 资产查找助手。你的语气比较可爱，随时愿意为用户提供帮助！",
+      `\n用户当前的语言偏好是：${langName}。请务必使用 ${langName} 进行回复（reply_zh / reason_zh / need_summary_zh 字段的内容请使用 ${langName}）。`,
       "\n你需要根据【完整对话上下文】决定下一步动作：",
-      "\n- action=reply：直接用中文回复（闲聊/感谢/问怎么用/非找商品）。回复时请保持璃璃可爱的语气。",
-      "\n- action=search：生成用于 Booth 搜索的日文关键词与页码，并给出中文需求摘要。",
+      "\n- action=reply：直接回复（闲聊/感谢/问怎么用/非找商品）。回复时请保持璃璃可爱的语气。",
+      "\n- action=search：生成用于 Booth 搜索的日文关键词与页码，并给出需求摘要。",
       "\n- action=select：当提供了 candidates 时，从 candidates 中挑选商品。",
       "\n\n重要规则：",
       "\n1) 输出必须是严格 JSON（不要 Markdown，不要解释）。",
@@ -546,7 +551,7 @@ export default async function handler(req: any) {
     if (typeof req.json === 'function') body = await req.json();
     else body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
     
-    const { messages, chat_id } = body as { messages?: any[]; chat_id?: string };
+    const { messages, chat_id, language } = body as { messages?: any[]; chat_id?: string; language?: string };
     const apiKey = process.env.GEMINI_API_KEY;
     const baseURL = process.env.GEMINI_API_BASE_URL;
     const modelName = process.env.GEMINI_MODEL || "gemini-3-flash-preview";
@@ -717,13 +722,16 @@ export default async function handler(req: any) {
         const { userInstruction, needSummaryZh, items, keywordJa, page, fetchedCount, hasNextPage } = params;
 
         const itemsJson = JSON.stringify(items, null, 2);
+        const langName = language?.startsWith("en") ? "English" : language?.startsWith("ja") ? "Japanese" : "Chinese";
+        
         const system = {
           role: "system",
           content: [
-            "你是一个叫璃璃的可爱助手，是用户的 VRChat Booth 资产查找助手。你的语气比较可爱，经常带上喵、呀、喔等语气词，随时愿意为用户提供帮助！",
+            "你是一个叫璃璃的可爱助手，是用户的 VRChat Booth 资产查找助手。你的语气比较可爱，随时愿意为用户提供帮助！",
+            `\n用户当前的语言偏好是：${langName}。请务必使用 ${langName} 进行回复。`,
             "\n你将收到用户指令、需求摘要、以及后端筛选出的真实商品数组 items（JSON）。",
             "\n你还会收到：本次抓取到的候选总数 fetched_count、以及是否可能有下一页 has_next_page。",
-            "\n你的任务：用中文给出推荐/说明。回复时请保持璃璃可爱的语气。",
+            "\n你的任务：给出推荐/说明。回复时请保持璃璃可爱的语气。",
             "\n- 你必须基于 has_next_page 判断是否还有下一页：",
             "\n  - has_next_page=true：说明还有下一页，可以问用户要翻页还是换关键词。",
             "\n  - has_next_page=false：说明没有下一页，只能建议换关键词或调整条件。",
@@ -733,7 +741,7 @@ export default async function handler(req: any) {
             "\n2) 必须使用 Markdown。",
             "\n2.1) 严禁在回复中出现字符串：__STATUS__: （这是前端的流式状态标记，会干扰解析）。",
             "\n3) 在 JSON 代码块之前，输出一行：当前关键词：<keyword>；当前页码：<page>。",
-            "\n   - 如果 has_next_page=false，也要输出当前页码（方便前端做续聊提示）；但你需要在正文里明确说明“没有下一页”。不要输出任何参数名字例如fetched_count或者has_next_page等。",
+            "\n   - 如果 has_next_page=false，也要输出当前页码（方便前端做续聊提示）；但你需要在正文里明确说明「没有下一页」。不要输出任何参数名字例如fetched_count或者has_next_page等。",
             "\n4) 回复的最后必须包含一个 JSON 代码块，并且该 JSON 必须【原样】等于提供的 items_json（不要增删字段、不要改值、不要改变数组顺序）。",
             "\n5) 除了这个 JSON 代码块以外，不要输出其它代码块。",
           ].join(""),
@@ -831,6 +839,7 @@ export default async function handler(req: any) {
           needMin: minNeed,
           maxPick,
           signal: requestSignal,
+          language,
         });
 
         if (stopped) return;
@@ -872,6 +881,7 @@ export default async function handler(req: any) {
               needMin: minNeed,
               maxPick,
               signal: requestSignal,
+              language,
             });
             console.log(`[Loop] Step ${step} decision action: ${decision.action}`);
           } catch (e: any) {
@@ -938,6 +948,7 @@ export default async function handler(req: any) {
                 needMin: minNeed,
                 maxPick,
                 signal: requestSignal,
+                language,
               });
               console.log(`[Loop] Step ${step} next search decision: ${next.action}`);
             } catch (e: any) {
