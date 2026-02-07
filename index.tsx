@@ -822,76 +822,60 @@ const AdminPanel = ({
 
         <div className="h-[calc(100%-72px)] grid grid-cols-1 lg:grid-cols-[320px_1fr]">
           {/* Left: Users */}
-          <aside className="border-b lg:border-b-0 lg:border-r border-white/5 overflow-hidden flex flex-col">
-            <div className="p-4 border-b border-white/5">
-              <div className="flex items-center gap-2 text-white font-bold mb-3">
-                <Users size={16} className="text-[#ff3d7f]" />
-                <span>用户列表</span>
+          <aside className="border-b lg:border-b-0 lg:border-r border-white/5 overflow-hidden flex flex-col bg-black/20">
+            {/* Header */}
+            <div className="px-4 py-3 border-b border-white/5">
+              <div className="flex items-center gap-2 text-white font-bold">
+                <Users size={18} className="text-[#ff3d7f]" />
+                <span>用户管理</span>
               </div>
-              <input
-                value={userQuery}
-                onChange={(e) => setUserQuery(e.target.value)}
-                placeholder="搜索 email / user_id"
-                className="w-full rounded-xl px-4 py-2.5 text-white focus:outline-none bh-input"
-              />
+            </div>
 
-              {/* Default limits */}
-              <div className="mt-3 p-3 rounded-2xl border border-white/5 bg-white/5">
-                <div className="text-[11px] text-zinc-400 font-mono mb-2">默认限制</div>
-                <div className="grid grid-cols-2 gap-2">
-                  <input
-                    value={settings?.default_session_turn_limit ?? ''}
-                    onChange={(e) => {
-                      const v = e.target.value;
-                      setSettings((s) => ({
-                        default_session_turn_limit: v === '' ? 0 : Number(v),
-                        default_daily_turn_limit: s?.default_daily_turn_limit ?? 0,
-                      }));
-                    }}
-                    placeholder="单会话"
-                    className="w-full rounded-xl px-3 py-2 text-white focus:outline-none bh-input text-sm"
-                    inputMode="numeric"
-                  />
-                  <input
-                    value={settings?.default_daily_turn_limit ?? ''}
-                    onChange={(e) => {
-                      const v = e.target.value;
-                      setSettings((s) => ({
-                        default_session_turn_limit: s?.default_session_turn_limit ?? 0,
-                        default_daily_turn_limit: v === '' ? 0 : Number(v),
-                      }));
-                    }}
-                    placeholder="今日次数"
-                    className="w-full rounded-xl px-3 py-2 text-white focus:outline-none bh-input text-sm"
-                    inputMode="numeric"
-                  />
+            {/* Scrollable Content */}
+            <div className="flex-1 overflow-y-auto">
+              {/* Section 1: Search */}
+              <div className="p-4 border-b border-white/5">
+                <div className="flex items-center gap-2 text-zinc-300 text-sm font-medium mb-3">
+                  <Search size={14} className="text-zinc-500" />
+                  <span>搜索用户</span>
                 </div>
-                <button
-                  onClick={saveSettings}
-                  disabled={settingsSaving || !settings}
-                  className="mt-2 w-full py-2 rounded-xl text-sm font-medium bh-btn-secondary text-white disabled:opacity-50"
-                >
-                  {settingsSaving ? '保存中...' : '保存默认限制'}
-                </button>
-                <div className="mt-2 text-[10px] text-zinc-500 leading-relaxed">
-                  0 表示无限制；留空将被视为 0。
-                </div>
+                <input
+                  value={userQuery}
+                  onChange={(e) => setUserQuery(e.target.value)}
+                  placeholder="输入 email 或 user_id..."
+                  className="w-full rounded-xl px-4 py-2.5 text-white focus:outline-none bh-input text-sm"
+                />
               </div>
-              {/* 排序选择器 */}
-              <div className="mt-3">
-                <div className="text-[11px] text-zinc-400 font-mono mb-2">排序方式</div>
-                <div className="grid grid-cols-3 gap-2">
+
+              {/* Section 2: View Controls */}
+              <div className="p-4 border-b border-white/5">
+                <div className="flex items-center justify-between mb-3">
+                  <div className="flex items-center gap-2 text-zinc-300 text-sm font-medium">
+                    <Layout size={14} className="text-zinc-500" />
+                    <span>视图选项</span>
+                  </div>
+                  <button
+                    onClick={() => loadUsers()}
+                    className="p-1.5 rounded-lg text-zinc-500 hover:text-white hover:bg-white/5 transition-colors"
+                    title="刷新用户列表"
+                  >
+                    <Loader2 size={14} className={`${usersLoading ? 'animate-spin' : ''}`} />
+                  </button>
+                </div>
+
+                {/* Sort Options */}
+                <div className="flex items-center gap-2">
                   <button
                     onClick={() => {
                       setUserSortBy('created_at');
                       loadUsers('created_at');
                     }}
-                    className={`py-2 px-2 rounded-xl text-xs font-medium transition-all ${
+                    className={`flex-1 px-2 py-1.5 rounded-lg text-xs font-medium transition-all ${
                       userSortBy === 'created_at'
-                        ? 'bh-btn-primary text-white'
-                        : 'bh-btn-secondary text-zinc-300 hover:text-white'
+                        ? 'bg-[#ff3d7f]/20 text-white'
+                        : 'bg-white/5 text-zinc-400 hover:text-zinc-200 hover:bg-white/[0.07]'
                     }`}
-                    title="按注册时间排序"
+                    title="注册时间"
                   >
                     注册时间
                   </button>
@@ -900,12 +884,12 @@ const AdminPanel = ({
                       setUserSortBy('last_active');
                       loadUsers('last_active');
                     }}
-                    className={`py-2 px-2 rounded-xl text-xs font-medium transition-all ${
+                    className={`flex-1 px-2 py-1.5 rounded-lg text-xs font-medium transition-all ${
                       userSortBy === 'last_active'
-                        ? 'bh-btn-primary text-white'
-                        : 'bh-btn-secondary text-zinc-300 hover:text-white'
+                        ? 'bg-[#ff3d7f]/20 text-white'
+                        : 'bg-white/5 text-zinc-400 hover:text-zinc-200 hover:bg-white/[0.07]'
                     }`}
-                    title="按最近活跃排序"
+                    title="最近活跃"
                   >
                     最近活跃
                   </button>
@@ -914,36 +898,99 @@ const AdminPanel = ({
                       setUserSortBy('total_turn_count');
                       loadUsers('total_turn_count');
                     }}
-                    className={`py-2 px-2 rounded-xl text-xs font-medium transition-all ${
+                    className={`flex-1 px-2 py-1.5 rounded-lg text-xs font-medium transition-all ${
                       userSortBy === 'total_turn_count'
-                        ? 'bh-btn-primary text-white'
-                        : 'bh-btn-secondary text-zinc-300 hover:text-white'
+                        ? 'bg-[#ff3d7f]/20 text-white'
+                        : 'bg-white/5 text-zinc-400 hover:text-zinc-200 hover:bg-white/[0.07]'
                     }`}
-                    title="按总对话次数排序"
+                    title="对话总数"
                   >
                     对话总数
                   </button>
                 </div>
+
+                {/* Quick Actions */}
+                <div className="mt-3">
+                  <button
+                    onClick={() => loadChats(null)}
+                    className="w-full py-2.5 rounded-xl text-sm font-medium bh-btn-secondary text-white flex items-center justify-center gap-2"
+                  >
+                    <MessageSquare size={16} />
+                    查看全部对话
+                  </button>
+                </div>
               </div>
 
-              <div className="mt-3 flex gap-2">
-                <button
-                  onClick={() => loadChats(null)}
-                  className="flex-1 py-2 rounded-xl text-sm font-medium bh-btn-secondary text-white"
-                >
-                  全部对话
-                </button>
-                <button
-                  onClick={() => loadUsers()}
-                  className="py-2 px-3 rounded-xl text-sm font-medium bh-btn-secondary text-white"
-                  title="刷新用户"
-                >
-                  刷新
-                </button>
+              {/* Section 3: Global Settings */}
+              <div className="p-4">
+                <div className="flex items-center gap-2 text-zinc-300 text-sm font-medium mb-3">
+                  <Shield size={14} className="text-zinc-500" />
+                  <span>全局默认限制</span>
+                </div>
+                
+                <div className="space-y-3">
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-[11px] text-zinc-500 mb-1.5">单会话上限</label>
+                      <input
+                        value={settings?.default_session_turn_limit ?? ''}
+                        onChange={(e) => {
+                          const v = e.target.value;
+                          setSettings((s) => ({
+                            default_session_turn_limit: v === '' ? 0 : Number(v),
+                            default_daily_turn_limit: s?.default_daily_turn_limit ?? 0,
+                          }));
+                        }}
+                        placeholder="50"
+                        className="w-full rounded-xl px-3 py-2 text-white focus:outline-none bh-input text-sm"
+                        inputMode="numeric"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] text-zinc-500 mb-1.5">单日上限</label>
+                      <input
+                        value={settings?.default_daily_turn_limit ?? ''}
+                        onChange={(e) => {
+                          const v = e.target.value;
+                          setSettings((s) => ({
+                            default_session_turn_limit: s?.default_session_turn_limit ?? 0,
+                            default_daily_turn_limit: v === '' ? 0 : Number(v),
+                          }));
+                        }}
+                        placeholder="200"
+                        className="w-full rounded-xl px-3 py-2 text-white focus:outline-none bh-input text-sm"
+                        inputMode="numeric"
+                      />
+                    </div>
+                  </div>
+                  
+                  <button
+                    onClick={saveSettings}
+                    disabled={settingsSaving || !settings}
+                    className="w-full py-2 rounded-xl text-sm font-medium bh-btn-primary text-white disabled:opacity-50 flex items-center justify-center gap-2"
+                  >
+                    {settingsSaving ? (
+                      <>
+                        <Loader2 size={14} className="animate-spin" />
+                        保存中...
+                      </>
+                    ) : (
+                      <>
+                        <Terminal size={14} />
+                        保存设置
+                      </>
+                    )}
+                  </button>
+                  
+                  <div className="text-[10px] text-zinc-500 leading-relaxed bg-white/5 rounded-lg px-3 py-2">
+                    <span className="text-[#ff3d7f]">提示：</span>0 表示无限制；留空将被视为 0
+                  </div>
+                </div>
               </div>
             </div>
 
-            <div className="flex-1 overflow-y-auto p-3 space-y-2">
+            {/* Section 4: User List */}
+            <div className="flex-1 overflow-y-auto p-3 space-y-2 min-h-0">
               {usersLoading ? (
                 Array.from({ length: 8 }).map((_, i) => <div key={i} className="bh-skeleton" style={{ height: 54 }} />)
               ) : filteredUsers.length === 0 ? (
