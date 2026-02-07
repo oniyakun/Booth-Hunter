@@ -446,6 +446,7 @@ const AdminPanel = ({
   const [chatLoading, setChatLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [userQuery, setUserQuery] = useState('');
+  const [userSortBy, setUserSortBy] = useState<'created_at' | 'last_active' | 'total_turn_count'>('created_at');
 
   // Turn limits
   const [settings, setSettings] = useState<AdminSettings | null>(null);
@@ -571,11 +572,12 @@ const AdminPanel = ({
     );
   };
 
-  const loadUsers = async () => {
+  const loadUsers = async (sortBy?: 'created_at' | 'last_active' | 'total_turn_count') => {
     setUsersLoading(true);
     setError(null);
     try {
-      const res = await adminFetchJson<{ data: Profile[] }>('/api/admin/users');
+      const sortParam = sortBy || userSortBy;
+      const res = await adminFetchJson<{ data: Profile[] }>(`/api/admin/users?sort_by=${encodeURIComponent(sortParam)}`);
       setUsers(res.data || []);
     } catch (e: any) {
       setError(e?.message || '加载用户失败');
@@ -875,6 +877,55 @@ const AdminPanel = ({
                   0 表示无限制；留空将被视为 0。
                 </div>
               </div>
+              {/* 排序选择器 */}
+              <div className="mt-3">
+                <div className="text-[11px] text-zinc-400 font-mono mb-2">排序方式</div>
+                <div className="grid grid-cols-3 gap-2">
+                  <button
+                    onClick={() => {
+                      setUserSortBy('created_at');
+                      loadUsers('created_at');
+                    }}
+                    className={`py-2 px-2 rounded-xl text-xs font-medium transition-all ${
+                      userSortBy === 'created_at'
+                        ? 'bh-btn-primary text-white'
+                        : 'bh-btn-secondary text-zinc-300 hover:text-white'
+                    }`}
+                    title="按注册时间排序"
+                  >
+                    注册时间
+                  </button>
+                  <button
+                    onClick={() => {
+                      setUserSortBy('last_active');
+                      loadUsers('last_active');
+                    }}
+                    className={`py-2 px-2 rounded-xl text-xs font-medium transition-all ${
+                      userSortBy === 'last_active'
+                        ? 'bh-btn-primary text-white'
+                        : 'bh-btn-secondary text-zinc-300 hover:text-white'
+                    }`}
+                    title="按最近活跃排序"
+                  >
+                    最近活跃
+                  </button>
+                  <button
+                    onClick={() => {
+                      setUserSortBy('total_turn_count');
+                      loadUsers('total_turn_count');
+                    }}
+                    className={`py-2 px-2 rounded-xl text-xs font-medium transition-all ${
+                      userSortBy === 'total_turn_count'
+                        ? 'bh-btn-primary text-white'
+                        : 'bh-btn-secondary text-zinc-300 hover:text-white'
+                    }`}
+                    title="按总对话次数排序"
+                  >
+                    对话总数
+                  </button>
+                </div>
+              </div>
+
               <div className="mt-3 flex gap-2">
                 <button
                   onClick={() => loadChats(null)}
@@ -883,7 +934,7 @@ const AdminPanel = ({
                   全部对话
                 </button>
                 <button
-                  onClick={loadUsers}
+                  onClick={() => loadUsers()}
                   className="py-2 px-3 rounded-xl text-sm font-medium bh-btn-secondary text-white"
                   title="刷新用户"
                 >

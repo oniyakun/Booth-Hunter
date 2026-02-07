@@ -102,10 +102,65 @@ export default async function handler(req: Request): Promise<Response> {
       return json(200, { ok: true });
     }
 
-    const { data, error } = await admin
-      .from('profiles')
-      .select('id, email, is_admin, created_at, total_turn_count, daily_turn_count, session_turn_limit_override, daily_turn_limit_override')
-      .order('created_at', { ascending: false });
+    // 获取排序参数
+    const url = new URL(req.url);
+    const sortBy = url.searchParams.get('sort_by') || 'created_at';
+    const allowedSortFields = ['created_at', 'last_active', 'total_turn_count'];
+    const validSortBy = allowedSortFields.includes(sortBy) ? sortBy : 'created_at';
+
+    let data: any[] = [];
+    let error: any = null;
+
+    if (validSortBy === 'last_active') {
+      // 按最近活跃排序：需要关联 chats 表获取每个用户的最后活跃时间
+      const { data: profilesData, error: profilesError } = await admin
+        .from('profiles')
+        .select('id, email, is_admin, created_at, total_turn_count, daily_turn_count, session_turn_limit_override, daily_turn_limit_override');
+      
+      if (profilesError) {
+        error = profilesError;
+      } else {
+        // 获取所有用户的最近活跃时间
+        const { data: lastActiveData, error: lastActiveError } = await admin
+          .from('chats')
+          .select('user_id, updated_at');
+        
+        if (lastActiveError) {
+          error = lastActiveError;
+        } else {
+          // 构建 user_id -> 最后活跃时间的映射
+          const lastActiveMap = new Map<string, string>();
+          lastActiveData?.forEach((chat: any) => {
+            const current = lastActiveMap.get(chat.user_id);
+            if (!current || new Date(chat.updated_at) > new Date(current)) {
+              lastActiveMap.set(chat.user_id, chat.updated_at);
+            }
+          });
+
+          // 合并数据并排序
+          data = (profilesData || []).map((p: any) => ({
+            ...p,
+            last_active: lastActiveMap.get(p.id) || p.created_at
+          }));
+          
+          // 按最近活跃时间降序排序
+          data.sort((a: any, b: any) => {
+            const aTime = new Date(a.last_active).getTime();
+            const bTime = new Date(b.last_active).getTime();
+            return bTime - aTime;
+          });
+        }
+      }
+    } else {
+      // 直接按指定字段排序
+      const { data: profilesData, error: profilesError } = await admin
+        .from('profiles')
+        .select('id, email, is_admin, created_at, total_turn_count, daily_turn_count, session_turn_limit_override, daily_turn_limit_override')
+        .order(validSortBy, { ascending: false });
+      
+      data = profilesData || [];
+      error = profilesError;
+    }
 
     if (error) return json(500, { error: error.message });
     return json(200, { data });
