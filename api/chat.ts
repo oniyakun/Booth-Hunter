@@ -605,6 +605,7 @@ async function executeVectorSearchRemote(params: {
       Authorization: `Bearer ${searchApiToken}`,
     },
     body: JSON.stringify({
+      query_text: query,
       embedding,
       limit: pageSize,
       offset,
@@ -838,9 +839,10 @@ export default async function handler(req: any) {
         page: number;
         fetchedCount: number;
         hasNextPage: boolean;
+        retrievalMode: "vector" | "live";
       }) => {
         if (stopped) return;
-        const { userInstruction, needSummaryZh, items, keywordJa, page, fetchedCount, hasNextPage } = params;
+        const { userInstruction, needSummaryZh, items, keywordJa, page, fetchedCount, hasNextPage, retrievalMode } = params;
 
         const itemsJson = JSON.stringify(items, null, 2);
         const langName = language?.startsWith("en") ? "English" : language?.startsWith("ja") ? "Japanese" : "Chinese";
@@ -856,6 +858,8 @@ export default async function handler(req: any) {
             "\n- 你必须基于 has_next_page 判断是否还有下一页：",
             "\n  - has_next_page=true：说明还有下一页，可以问用户要翻页还是换关键词。",
             "\n  - has_next_page=false：说明没有下一页，只能建议换关键词或调整条件。",
+            "\n- 当 retrieval_mode=vector 时，不要建议翻页；优先建议用户调整关键词、标签或价格条件。",
+            "\n- 只有 retrieval_mode=live 且 has_next_page=true 时，才可以建议继续翻页。",
             "\n- items 只是你最终挑选给用户展示的结果，数量可能远小于 fetched_count。不要用 items 的数量去推断是否还有下一页。",
             "\n重要规则：",
             "\n1) 禁止编造商品，只能基于 items。",
@@ -874,6 +878,7 @@ export default async function handler(req: any) {
           `\npage：${page}`,
           `\nfetched_count：${fetchedCount}`,
           `\nhas_next_page：${hasNextPage ? "true" : "false"}`,
+          `\nretrieval_mode：${retrievalMode}`,
           "\nitems_json（必须原样输出到你回复末尾的 json 代码块）：\n" + itemsJson,
         ].join("");
 
@@ -947,6 +952,7 @@ export default async function handler(req: any) {
         // 说明：Booth 搜索通常一页最多 ~60 条；抓取到 60 往往意味着还有下一页（经验启发式）。
         let lastFetchedCount = 0;
         let lastHasNextPage = false;
+        let lastRetrievalMode: "vector" | "live" = "live";
 
         // Step 1: 让 agent 基于完整上下文决定：直接回复 or 发起搜索
         await writeStatus("璃璃正在规划下一步...");
@@ -981,6 +987,7 @@ export default async function handler(req: any) {
           if (stopped) return;
           await writeStatus(`正在抓取 Booth：关键词「${currentKeywordJa}」第 ${currentPage} 页...`);
           let pageItems: BoothRawItem[] = [];
+          let usedVector = false;
           try {
             pageItems = await executeVectorSearchRemote({
               query: currentKeywordJa,
@@ -994,6 +1001,7 @@ export default async function handler(req: any) {
               searchApiToken: vectorSearchApiToken,
             });
             if (pageItems.length > 0) {
+              usedVector = true;
               console.log(`[Vector] hit ${pageItems.length} items from remote vector search`);
             }
           } catch (e: any) {
@@ -1003,7 +1011,8 @@ export default async function handler(req: any) {
             pageItems = await executeSearchBoothPage(currentKeywordJa, currentPage);
           }
           lastFetchedCount = pageItems.length;
-          lastHasNextPage = pageItems.length >= 60;
+          lastRetrievalMode = usedVector ? "vector" : "live";
+          lastHasNextPage = usedVector ? false : pageItems.length >= 60;
           if (stopped) return;
           await writeStatus(`抓取到 ${pageItems.length} 条，璃璃正在选择/决定下一步...`);
 
@@ -1127,6 +1136,7 @@ export default async function handler(req: any) {
           page: currentPage,
           fetchedCount: lastFetchedCount,
           hasNextPage: lastHasNextPage,
+          retrievalMode: lastRetrievalMode,
         });
 
         if (!stopped) await writer.close();
