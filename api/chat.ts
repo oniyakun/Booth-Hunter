@@ -580,11 +580,7 @@ async function executeVectorSearchRemote(params: {
     searchApiToken,
   } = params;
 
-<<<<<<< Updated upstream
-  if (!searchApiUrl || !searchApiToken) return [];
-=======
   if (!searchApiUrl || !searchApiToken || !apiKey || !baseURL) return [];
->>>>>>> Stashed changes
   const embedding = await generateQueryEmbedding({
     apiKey,
     baseURL,
@@ -665,18 +661,11 @@ export default async function handler(req: any) {
     const { messages, chat_id, language } = body as { messages?: any[]; chat_id?: string; language?: string };
     const apiKey = process.env.GEMINI_API_KEY;
     const baseURL = process.env.GEMINI_API_BASE_URL;
-<<<<<<< Updated upstream
-    const embeddingBaseURL = process.env.GEMINI_EMBEDDING_API_BASE_URL || baseURL;
-    const modelName = process.env.GEMINI_MODEL || "gemini-3-flash-preview";
-    const embeddingModelName = process.env.GEMINI_EMBEDDING_MODEL || "gemini-embedding-001";
-    const vectorSearchApiUrl = process.env.VECTOR_SEARCH_API_URL;
-=======
     const embeddingApiKey = process.env.GEMINI_EMBEDDING_API_KEY || apiKey;
     const embeddingBaseURL = process.env.GEMINI_EMBEDDING_API_BASE_URL || baseURL;
     const modelName = process.env.GEMINI_MODEL || "gemini-3-flash-preview";
     const embeddingModelName = process.env.GEMINI_EMBEDDING_MODEL || "gemini-embedding-001";
     const vectorSearchApiUrl = process.env.VECTOR_SEARCH_API_URL || 'https://booth-embedding.vrc.one/';
->>>>>>> Stashed changes
     const vectorSearchApiToken = process.env.VECTOR_SEARCH_API_TOKEN;
 
     // 轮数限制：需要用户 JWT + chat_id
@@ -988,11 +977,7 @@ export default async function handler(req: any) {
               query: currentKeywordJa,
               page: currentPage,
               pageSize: 60,
-<<<<<<< Updated upstream
-              apiKey,
-=======
               apiKey: embeddingApiKey || "",
->>>>>>> Stashed changes
               baseURL: embeddingBaseURL || "",
               embeddingModel: embeddingModelName,
               searchApiUrl: vectorSearchApiUrl,
