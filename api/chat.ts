@@ -375,6 +375,61 @@ function extractLastKeywordAndPageHint(messages: ClientMessage[]): { keywordJa?:
   return {};
 }
 
+function buildBoothItemJsonUrl(item: { id?: string; url?: string }): string {
+  const id = String(item.id || "").trim();
+  const url = String(item.url || "").trim();
+  if (url) {
+    const noHash = url.split("#")[0];
+    const noQuery = noHash.split("?")[0];
+    const normalized = noQuery.replace(/\/+$/, "");
+    if (/\/items\/\d+$/i.test(normalized)) return `${normalized}.json`;
+  }
+  if (id) return `https://booth.pm/ja/items/${encodeURIComponent(id)}.json`;
+  return "";
+}
+
+function extractPreviewImageFromBoothJson(data: any): string {
+  const candidates = [
+    data?.image?.original,
+    data?.image?.resized,
+    data?.image?.url,
+    data?.image_url,
+    data?.thumbnail_url,
+    data?.main_image_url,
+    data?.images?.[0]?.original,
+    data?.images?.[0]?.resized,
+    data?.images?.[0]?.url,
+    data?.images?.[0]?.original_file?.url,
+  ];
+  for (const c of candidates) {
+    if (typeof c === "string" && c.trim()) return c.trim();
+  }
+  return "";
+}
+
+async function enrichPickedItemsPreviewImage(items: AssetResult[]): Promise<void> {
+  await Promise.all(
+    items.map(async (item) => {
+      const jsonUrl = buildBoothItemJsonUrl(item);
+      if (!jsonUrl) return;
+      try {
+        const res = await fetch(jsonUrl, {
+          headers: {
+            "Accept": "application/json",
+            "User-Agent": "Mozilla/5.0",
+          },
+        });
+        if (!res.ok) return;
+        const data = await res.json();
+        const preview = extractPreviewImageFromBoothJson(data);
+        if (preview) item.imageUrl = preview;
+      } catch {
+        // ignore per-item fetch errors
+      }
+    })
+  );
+}
+
 async function generateQueryEmbedding(params: {
   apiKey: string;
   baseURL: string;
@@ -1100,6 +1155,7 @@ export default async function handler(req: any) {
 
         // 所有可见回复由 agent 生成（流式输出），不再手工拼接文案。
         await writeStatus("璃璃正在生成最终回复...");
+        await enrichPickedItemsPreviewImage(picked);
         await streamAssistantReply({
           userInstruction,
           needSummaryZh,
