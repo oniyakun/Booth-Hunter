@@ -517,113 +517,6 @@ async function executeSearchBoothPage(keywordJa: string, page: number = 1): Prom
   return items;
 }
 
-async function generateQueryEmbedding(params: {
-  apiKey: string;
-  baseURL: string;
-  modelName: string;
-  text: string;
-}): Promise<number[] | null> {
-  const { apiKey, baseURL, modelName, text } = params;
-  try {
-    let root = baseURL.replace(/\/$/, "");
-    let version = "v1beta";
-    if (root.includes("/v1beta")) {
-      root = root.replace("/v1beta", "");
-    } else if (root.includes("/v1")) {
-      root = root.replace("/v1", "");
-      version = "v1";
-    }
-    const url = `${root}/${version}/models/${modelName}:embedContent`;
-    const response = await fetch(url, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-Proxy-Api-Key": apiKey,
-      },
-      body: JSON.stringify({
-        model: modelName,
-        content: { parts: [{ text }] },
-      }),
-    });
-    if (!response.ok) {
-      const msg = await response.text();
-      throw new Error(`Embedding API ${response.status}: ${msg}`);
-    }
-    const data = await response.json();
-    const values = data?.embedding?.values;
-    if (!Array.isArray(values) || values.length === 0) return null;
-    return values.map((v: any) => Number(v) || 0);
-  } catch (e: any) {
-    console.warn("[Vector] generateQueryEmbedding failed:", e?.message || e);
-    return null;
-  }
-}
-
-async function executeVectorSearchRemote(params: {
-  query: string;
-  page: number;
-  pageSize: number;
-  apiKey: string;
-  baseURL: string;
-  embeddingModel: string;
-  searchApiUrl?: string;
-  searchApiToken?: string;
-}): Promise<BoothRawItem[]> {
-  const {
-    query,
-    page,
-    pageSize,
-    apiKey,
-    baseURL,
-    embeddingModel,
-    searchApiUrl,
-    searchApiToken,
-  } = params;
-
-  if (!searchApiUrl || !searchApiToken) return [];
-  const embedding = await generateQueryEmbedding({
-    apiKey,
-    baseURL,
-    modelName: embeddingModel,
-    text: query,
-  });
-  if (!embedding) return [];
-
-  const offset = Math.max(0, (Math.max(1, page) - 1) * pageSize);
-  const response = await fetch(`${searchApiUrl.replace(/\/$/, "")}/v1/search_by_embedding`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${searchApiToken}`,
-    },
-    body: JSON.stringify({
-      embedding,
-      limit: pageSize,
-      offset,
-      min_score: 0.45,
-    }),
-  });
-
-  if (!response.ok) {
-    const msg = await response.text().catch(() => "");
-    throw new Error(`Search API ${response.status}: ${msg}`);
-  }
-
-  const payload = await response.json();
-  const rows = Array.isArray(payload?.rows) ? payload.rows : [];
-  return rows.map((row: any) => ({
-    id: String(row.id || ""),
-    title: row.title || "No Title",
-    shopName: row.shop_name || "Unknown Shop",
-    price: row.price || "Unknown",
-    url: row.url || "",
-    imageUrl: row.image_url || "",
-    description: row.description || "",
-    tags: Array.isArray(row.tags) ? row.tags : [],
-    variations: [],
-  })).filter((x: BoothRawItem) => !!x.id && !!x.url);
-}
-
 interface ConsumeTurnResponse {
   allowed: boolean;
   reason?: string;
@@ -661,11 +554,7 @@ export default async function handler(req: any) {
     const { messages, chat_id, language } = body as { messages?: any[]; chat_id?: string; language?: string };
     const apiKey = process.env.GEMINI_API_KEY;
     const baseURL = process.env.GEMINI_API_BASE_URL;
-    const embeddingBaseURL = process.env.GEMINI_EMBEDDING_API_BASE_URL || baseURL;
     const modelName = process.env.GEMINI_MODEL || "gemini-3-flash-preview";
-    const embeddingModelName = process.env.GEMINI_EMBEDDING_MODEL || "gemini-embedding-001";
-    const vectorSearchApiUrl = process.env.VECTOR_SEARCH_API_URL;
-    const vectorSearchApiToken = process.env.VECTOR_SEARCH_API_TOKEN;
 
     // 轮数限制：需要用户 JWT + chat_id
     const supabaseUrl = process.env.SUPABASE_URL;
@@ -970,27 +859,7 @@ export default async function handler(req: any) {
         for (let step = 0; step < maxSteps; step++) {
           if (stopped) return;
           await writeStatus(`正在抓取 Booth：关键词「${currentKeywordJa}」第 ${currentPage} 页...`);
-          let pageItems: BoothRawItem[] = [];
-          try {
-            pageItems = await executeVectorSearchRemote({
-              query: currentKeywordJa,
-              page: currentPage,
-              pageSize: 60,
-              apiKey,
-              baseURL: embeddingBaseURL || "",
-              embeddingModel: embeddingModelName,
-              searchApiUrl: vectorSearchApiUrl,
-              searchApiToken: vectorSearchApiToken,
-            });
-            if (pageItems.length > 0) {
-              console.log(`[Vector] hit ${pageItems.length} items from remote vector search`);
-            }
-          } catch (e: any) {
-            console.warn(`[Vector] remote search failed, fallback to live crawl: ${e?.message || e}`);
-          }
-          if (pageItems.length === 0) {
-            pageItems = await executeSearchBoothPage(currentKeywordJa, currentPage);
-          }
+          const pageItems = await executeSearchBoothPage(currentKeywordJa, currentPage);
           lastFetchedCount = pageItems.length;
           lastHasNextPage = pageItems.length >= 60;
           if (stopped) return;
