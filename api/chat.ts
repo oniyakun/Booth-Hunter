@@ -1,5 +1,4 @@
-import OpenAI from "openai";
-import * as cheerio from "cheerio";
+﻿import OpenAI from "openai";
 import { createClient } from "@supabase/supabase-js";
 
 export const config = {
@@ -376,147 +375,6 @@ function extractLastKeywordAndPageHint(messages: ClientMessage[]): { keywordJa?:
   return {};
 }
 
-function parseBoothSearchPage(htmlContent: string): BoothRawItem[] {
-  const $ = cheerio.load(htmlContent);
-  const items: BoothRawItem[] = [];
-
-  $("li.item-card").each((_, el) => {
-    const $el = $(el);
-
-    const title = $el.find(".item-card__title").text().trim() || "No Title";
-    const shopName = $el.find(".item-card__shop-name").text().trim() || "Unknown Shop";
-    const price = $el.find(".price").text().trim() || "Free";
-
-    const linkEl = $el.find(".item-card__title-anchor");
-    const urlPath = (linkEl.attr("href") || "").trim();
-    const id = ($el.attr("data-product-id") || urlPath.split("/").filter(Boolean).pop() || "").trim();
-
-    // 兜底：有些情况下列表卡片拿不到 href，但 data-product-id 仍存在
-    const fallbackPath = id ? `/ja/items/${encodeURIComponent(id)}` : "";
-    const resolvedPath = urlPath || fallbackPath;
-    const fullUrl = resolvedPath.startsWith("http") ? resolvedPath : `https://booth.pm${resolvedPath}`;
-
-    const imgEl = $el.find(".item-card__thumbnail-image");
-    const imageUrl = imgEl.attr("data-original") || imgEl.attr("data-src") || imgEl.attr("src") || "";
-
-    // 尽力抓简介/标签（不同页面结构可能不一致）
-    const description =
-      $el.find(".item-card__description").text().trim() ||
-      $el.find(".u-text-ellipsis-2").text().trim() ||
-      "";
-
-    const tags: string[] = [];
-    $el.find("a.tag, .item-card__tags a, .item-card__tags span").each((_, tagEl) => {
-      const tag = $(tagEl).text().trim();
-      if (tag) tags.push(tag);
-    });
-
-    if (!id || !fullUrl) return;
-    items.push({
-      id: String(id),
-      title,
-      shopName,
-      price,
-      url: fullUrl,
-      imageUrl,
-      description,
-      tags: Array.from(new Set(tags)).slice(0, 12),
-    });
-  });
-
-  return items;
-}
-
-async function fetchItemDetailsJson(id: string): Promise<{ tags?: string[], description?: string, shopUrl?: string, variations?: { name: string, price: number }[] } | null> {
-  const jsonUrl = `https://booth.pm/ja/items/${id}.json`;
-  try {
-    const res = await fetch(jsonUrl, {
-      headers: {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        "Accept-Language": "ja-JP,ja;q=0.9,en-US;q=0.8,en;q=0.7",
-        "X-Requested-With": "XMLHttpRequest"
-      }
-    });
-    if (res.ok) {
-      const json = await res.json();
-      return {
-        tags: Array.isArray(json.tags) ? json.tags.map((t: any) => t.name) : undefined,
-        description: json.description,
-        shopUrl: json.shop?.url,
-        variations: Array.isArray(json.variations) ? json.variations.map((v: any) => ({
-          name: v.name,
-          price: v.price
-        })) : undefined
-      };
-    }
-  } catch (e: any) {
-    // ignore
-  }
-  return null;
-}
-
-async function executeSearchBoothPage(keywordJa: string, page: number = 1): Promise<BoothRawItem[]> {
-  console.log(`[Scraper] Starting direct search for: "${keywordJa}" (Page ${page})`);
-  let items: BoothRawItem[] = [];
-
-  let timeoutId: ReturnType<typeof setTimeout> | null = null;
-  try {
-    const targetUrl = `https://booth.pm/ja/search/${encodeURIComponent(keywordJa)}?page=${page}`;
-    const controller = new AbortController();
-    timeoutId = setTimeout(() => controller.abort(), 15000);
-
-    const res = await fetch(targetUrl, {
-      signal: controller.signal,
-      headers: {
-        "User-Agent":
-          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        "Accept-Language": "ja-JP,ja;q=0.9,en-US;q=0.8,en;q=0.7",
-      },
-    });
-
-    if (timeoutId) clearTimeout(timeoutId);
-    if (res.ok) {
-      const htmlContent = await res.text();
-      if (htmlContent && htmlContent.length > 500) {
-        items = parseBoothSearchPage(htmlContent);
-      }
-    }
-  } catch (e: any) {
-    if (timeoutId) clearTimeout(timeoutId);
-    console.error(`[Scraper] Search error: ${e?.message || e}`);
-  }
-
-  if (items.length > 0) {
-    // 改进：全量增强。对搜索到的所有商品发起 JSON 请求以获取精准信息。
-    // 使用分批处理（每批 15 个）以平衡速度与稳定性。
-    console.log(`[Scraper] Enhancing all ${items.length} items with JSON data...`);
-    
-    const BATCH_SIZE = 15;
-    for (let i = 0; i < items.length; i += BATCH_SIZE) {
-      const batch = items.slice(i, i + BATCH_SIZE);
-    await Promise.all(batch.map(async (item) => {
-      const details = await fetchItemDetailsJson(item.id);
-      if (details) {
-        if (details.tags) item.tags = details.tags;
-        if (details.description) item.description = details.description;
-        if (details.variations) {
-          item.variations = details.variations;
-          // 重新计算更准确的价格范围
-          const prices = details.variations.map(v => v.price).filter(p => typeof p === 'number');
-          if (prices.length > 0) {
-            const min = Math.min(...prices);
-            const max = Math.max(...prices);
-            item.price = min === max ? `${min} JPY` : `${min} ~ ${max} JPY`;
-          }
-        }
-      }
-    }));
-    }
-  }
-
-  return items;
-}
-
 async function generateQueryEmbedding(params: {
   apiKey: string;
   baseURL: string;
@@ -566,28 +424,32 @@ async function generateQueryEmbedding(params: {
 
 async function executeVectorSearchRemote(params: {
   query: string;
-  page: number;
+  offset: number;
   pageSize: number;
   apiKey: string;
   baseURL: string;
   embeddingModel: string;
   targetDimension: number;
+  minScore: number;
   searchApiUrl?: string;
   searchApiToken?: string;
-}): Promise<BoothRawItem[]> {
+}): Promise<{ items: BoothRawItem[]; totalMatched: number; hasMore: boolean; nextOffset: number | null }> {
   const {
     query,
-    page,
+    offset,
     pageSize,
     apiKey,
     baseURL,
     embeddingModel,
     targetDimension,
+    minScore,
     searchApiUrl,
     searchApiToken,
   } = params;
 
-  if (!searchApiUrl || !searchApiToken || !apiKey || !baseURL) return [];
+  if (!searchApiUrl || !searchApiToken || !apiKey || !baseURL) {
+    throw new Error("Vector search configuration missing");
+  }
   const embedding = await generateQueryEmbedding({
     apiKey,
     baseURL,
@@ -595,9 +457,9 @@ async function executeVectorSearchRemote(params: {
     text: query,
     targetDimension,
   });
-  if (!embedding) return [];
+  if (!embedding) throw new Error("Failed to generate query embedding");
 
-  const offset = Math.max(0, (Math.max(1, page) - 1) * pageSize);
+  const normalizedOffset = Math.max(0, Math.trunc(offset || 0));
   const response = await fetch(`${searchApiUrl.replace(/\/$/, "")}/v1/search_by_embedding`, {
     method: "POST",
     headers: {
@@ -608,8 +470,8 @@ async function executeVectorSearchRemote(params: {
       query_text: query,
       embedding,
       limit: pageSize,
-      offset,
-      min_score: 0.45,
+      offset: normalizedOffset,
+      min_score: minScore,
     }),
   });
 
@@ -620,7 +482,7 @@ async function executeVectorSearchRemote(params: {
 
   const payload = await response.json();
   const rows = Array.isArray(payload?.rows) ? payload.rows : [];
-  return rows.map((row: any) => ({
+  const items = rows.map((row: any) => ({
     id: String(row.id || ""),
     title: row.title || "No Title",
     shopName: row.shop_name || "Unknown Shop",
@@ -631,6 +493,88 @@ async function executeVectorSearchRemote(params: {
     tags: Array.isArray(row.tags) ? row.tags : [],
     variations: [],
   })).filter((x: BoothRawItem) => !!x.id && !!x.url);
+  return {
+    items,
+    totalMatched: Number(payload?.total_matched || 0),
+    hasMore: !!payload?.has_more,
+    nextOffset: typeof payload?.next_offset === "number" ? payload.next_offset : null,
+  };
+}
+
+async function executeVectorSearchRemoteMultiPage(params: {
+  query: string;
+  page: number;
+  pageSize: number;
+  targetFetch: number;
+  maxPages: number;
+  minScore: number;
+  apiKey: string;
+  baseURL: string;
+  embeddingModel: string;
+  targetDimension: number;
+  searchApiUrl?: string;
+  searchApiToken?: string;
+}): Promise<{ items: BoothRawItem[]; fetchedCount: number; hasNextPage: boolean; totalMatched: number }> {
+  const {
+    query,
+    page,
+    pageSize,
+    targetFetch,
+    maxPages,
+    minScore,
+    apiKey,
+    baseURL,
+    embeddingModel,
+    targetDimension,
+    searchApiUrl,
+    searchApiToken,
+  } = params;
+
+  const startOffset = Math.max(0, (Math.max(1, page) - 1) * pageSize);
+  let offset = startOffset;
+  let totalMatched = 0;
+  let hasMore = false;
+  const out: BoothRawItem[] = [];
+  const seen = new Set<string>();
+  const safeTarget = Math.max(1, targetFetch);
+  const safeMaxPages = Math.max(1, maxPages);
+
+  for (let i = 0; i < safeMaxPages && out.length < safeTarget; i++) {
+    const remaining = safeTarget - out.length;
+    const onePageSize = Math.max(1, Math.min(pageSize, remaining));
+    const result = await executeVectorSearchRemote({
+      query,
+      offset,
+      pageSize: onePageSize,
+      minScore,
+      apiKey,
+      baseURL,
+      embeddingModel,
+      targetDimension,
+      searchApiUrl,
+      searchApiToken,
+    });
+
+    totalMatched = Math.max(totalMatched, result.totalMatched);
+    hasMore = !!result.hasMore;
+
+    for (const item of result.items) {
+      if (!item?.id || seen.has(item.id)) continue;
+      seen.add(item.id);
+      out.push(item);
+      if (out.length >= safeTarget) break;
+    }
+
+    if (!result.hasMore) break;
+    offset = typeof result.nextOffset === "number" ? result.nextOffset : offset + onePageSize;
+  }
+
+  return {
+    items: out,
+    fetchedCount: out.length,
+    hasNextPage: hasMore,
+    totalMatched,
+  };
 }
 
 interface ConsumeTurnResponse {
@@ -677,6 +621,10 @@ export default async function handler(req: any) {
     const vectorEmbeddingDimension = Number(process.env.VECTOR_EMBEDDING_DIMENSION || 2000);
     const vectorSearchApiUrl = process.env.VECTOR_SEARCH_API_URL || 'https://booth-embedding.vrc.one/';
     const vectorSearchApiToken = process.env.VECTOR_SEARCH_API_TOKEN;
+    const vectorSearchPageSize = Math.max(1, Number(process.env.VECTOR_SEARCH_PAGE_SIZE || 60));
+    const vectorSearchMaxPages = Math.max(1, Number(process.env.VECTOR_SEARCH_MAX_PAGES || 4));
+    const vectorSearchTargetFetch = Math.max(1, Number(process.env.VECTOR_SEARCH_TARGET_FETCH || (vectorSearchPageSize * vectorSearchMaxPages)));
+    const vectorSearchMinScore = Number(process.env.VECTOR_SEARCH_MIN_SCORE || 0.45);
 
     // 轮数限制：需要用户 JWT + chat_id
     const supabaseUrl = process.env.SUPABASE_URL;
@@ -707,6 +655,12 @@ export default async function handler(req: any) {
     }
 
     if (!apiKey) return new Response('Configuration Error: GEMINI_API_KEY missing', { status: 500 });
+    if (!embeddingApiKey || !embeddingBaseURL) {
+      return new Response('Configuration Error: GEMINI_EMBEDDING_API_KEY / GEMINI_EMBEDDING_API_BASE_URL missing', { status: 500 });
+    }
+    if (!vectorSearchApiUrl || !vectorSearchApiToken) {
+      return new Response('Configuration Error: VECTOR_SEARCH_API_URL / VECTOR_SEARCH_API_TOKEN missing', { status: 500 });
+    }
 
     // 在真正调用模型前，先消耗 1 次对话轮数（原子校验/递增）
     let turnMeta: ConsumeTurnResponse | undefined;
@@ -831,6 +785,18 @@ export default async function handler(req: any) {
         await flush();
       };
 
+      const writeMeta = async (meta: {
+        keyword_ja: string;
+        page: number;
+        fetched_count: number;
+        total_matched: number;
+        has_next_page: boolean;
+      }) => {
+        if (stopped) return;
+        await write(`__STATUS__:__META__:${JSON.stringify(meta)}\n`);
+        await flush();
+      };
+
       const streamAssistantReply = async (params: {
         userInstruction: string;
         needSummaryZh: string;
@@ -839,10 +805,10 @@ export default async function handler(req: any) {
         page: number;
         fetchedCount: number;
         hasNextPage: boolean;
-        retrievalMode: "vector" | "live";
+        totalMatched: number;
       }) => {
         if (stopped) return;
-        const { userInstruction, needSummaryZh, items, keywordJa, page, fetchedCount, hasNextPage, retrievalMode } = params;
+        const { userInstruction, needSummaryZh, items, keywordJa, page, fetchedCount, hasNextPage, totalMatched } = params;
 
         const itemsJson = JSON.stringify(items, null, 2);
         const langName = language?.startsWith("en") ? "English" : language?.startsWith("ja") ? "Japanese" : "Chinese";
@@ -853,20 +819,19 @@ export default async function handler(req: any) {
             "你是一个叫璃璃的可爱助手，是用户的 VRChat Booth 资产查找助手。你的语气比较可爱，随时愿意为用户提供帮助！",
             `\n用户当前的语言偏好是：${langName}。请务必使用 ${langName} 进行回复。`,
             "\n你将收到用户指令、需求摘要、以及后端筛选出的真实商品数组 items（JSON）。",
-            "\n你还会收到：本次抓取到的候选总数 fetched_count、以及是否可能有下一页 has_next_page。",
+            "\n你还会收到：本次取回的候选总数 fetched_count、总匹配数 total_matched、以及是否还有更多匹配 has_next_page。",
             "\n你的任务：给出推荐/说明。回复时请保持璃璃可爱的语气。",
-            "\n- 你必须基于 has_next_page 判断是否还有下一页：",
-            "\n  - has_next_page=true：说明还有下一页，可以问用户要翻页还是换关键词。",
-            "\n  - has_next_page=false：说明没有下一页，只能建议换关键词或调整条件。",
-            "\n- 当 retrieval_mode=vector 时，不要建议翻页；优先建议用户调整关键词、标签或价格条件。",
-            "\n- 只有 retrieval_mode=live 且 has_next_page=true 时，才可以建议继续翻页。",
+            "\n- 你必须基于 has_next_page 判断是否还有更多匹配：",
+            "\n  - has_next_page=true：说明还有更多匹配，请建议用户进一步细化条件（关键词、标签、价格、风格）。",
+            "\n  - has_next_page=false：说明当前条件下已基本检索完，可建议用户换关键词或放宽条件。",
+            "\n- 本系统是向量检索，不要建议用户翻页抓取；优先建议调整关键词、标签、风格或价格条件。",
             "\n- items 只是你最终挑选给用户展示的结果，数量可能远小于 fetched_count。不要用 items 的数量去推断是否还有下一页。",
             "\n重要规则：",
             "\n1) 禁止编造商品，只能基于 items。",
             "\n2) 必须使用 Markdown。",
             "\n2.1) 严禁在回复中出现字符串：__STATUS__: （这是前端的流式状态标记，会干扰解析）。",
             "\n3) 在 JSON 代码块之前，输出一行：当前关键词：<keyword>；当前页码：<page>。",
-            "\n   - 如果 has_next_page=false，也要输出当前页码（方便前端做续聊提示）；但你需要在正文里明确说明「没有下一页」。不要输出任何参数名字例如fetched_count或者has_next_page等。",
+            "\n   - 无论 has_next_page 是否为 true，都要输出当前页码（方便前端续聊）；并且不要输出参数名字例如 fetched_count、total_matched、has_next_page。",
             "\n4) 回复的最后必须包含一个 JSON 代码块，并且该 JSON 必须【原样】等于提供的 items_json（不要增删字段、不要改值、不要改变数组顺序）。",
             "\n5) 除了这个 JSON 代码块以外，不要输出其它代码块。",
           ].join(""),
@@ -877,8 +842,8 @@ export default async function handler(req: any) {
           `\nkeyword_ja：${keywordJa}`,
           `\npage：${page}`,
           `\nfetched_count：${fetchedCount}`,
+          `\ntotal_matched：${totalMatched}`,
           `\nhas_next_page：${hasNextPage ? "true" : "false"}`,
-          `\nretrieval_mode：${retrievalMode}`,
           "\nitems_json（必须原样输出到你回复末尾的 json 代码块）：\n" + itemsJson,
         ].join("");
 
@@ -951,8 +916,8 @@ export default async function handler(req: any) {
         // 用于最终回复：告诉 assistant “本次抓取的候选数量”与“是否可能有下一页”
         // 说明：Booth 搜索通常一页最多 ~60 条；抓取到 60 往往意味着还有下一页（经验启发式）。
         let lastFetchedCount = 0;
+        let lastTotalMatched = 0;
         let lastHasNextPage = false;
-        let lastRetrievalMode: "vector" | "live" = "live";
 
         // Step 1: 让 agent 基于完整上下文决定：直接回复 or 发起搜索
         await writeStatus("璃璃正在规划下一步...");
@@ -985,14 +950,16 @@ export default async function handler(req: any) {
         // Step 2..N: agent loop（search -> fetch -> select -> (optional) 再 search）
         for (let step = 0; step < maxSteps; step++) {
           if (stopped) return;
-          await writeStatus(`正在抓取 Booth：关键词「${currentKeywordJa}」第 ${currentPage} 页...`);
+          await writeStatus(`正在检索向量索引：关键词「${currentKeywordJa}」，起始页 ${currentPage}...`);
           let pageItems: BoothRawItem[] = [];
-          let usedVector = false;
           try {
-            pageItems = await executeVectorSearchRemote({
+            const searchResult = await executeVectorSearchRemoteMultiPage({
               query: currentKeywordJa,
               page: currentPage,
-              pageSize: 60,
+              pageSize: vectorSearchPageSize,
+              targetFetch: vectorSearchTargetFetch,
+              maxPages: vectorSearchMaxPages,
+              minScore: vectorSearchMinScore,
               apiKey: embeddingApiKey || "",
               baseURL: embeddingBaseURL || "",
               embeddingModel: embeddingModelName,
@@ -1000,19 +967,24 @@ export default async function handler(req: any) {
               searchApiUrl: vectorSearchApiUrl,
               searchApiToken: vectorSearchApiToken,
             });
-            if (pageItems.length > 0) {
-              usedVector = true;
-              console.log(`[Vector] hit ${pageItems.length} items from remote vector search`);
-            }
+            pageItems = searchResult.items;
+            lastFetchedCount = searchResult.fetchedCount;
+            lastTotalMatched = searchResult.totalMatched;
+            lastHasNextPage = searchResult.hasNextPage;
+            console.log(
+              `[Vector] query="${currentKeywordJa}" page=${currentPage} fetched=${searchResult.fetchedCount} total=${searchResult.totalMatched} has_more=${searchResult.hasNextPage}`
+            );
+            await writeMeta({
+              keyword_ja: currentKeywordJa,
+              page: currentPage,
+              fetched_count: searchResult.fetchedCount,
+              total_matched: searchResult.totalMatched,
+              has_next_page: searchResult.hasNextPage,
+            });
           } catch (e: any) {
-            console.warn(`[Vector] remote search failed, fallback to live crawl: ${e?.message || e}`);
+            console.error(`[Vector] remote search failed: ${e?.message || e}`);
+            throw e;
           }
-          if (pageItems.length === 0) {
-            pageItems = await executeSearchBoothPage(currentKeywordJa, currentPage);
-          }
-          lastFetchedCount = pageItems.length;
-          lastRetrievalMode = usedVector ? "vector" : "live";
-          lastHasNextPage = usedVector ? false : pageItems.length >= 60;
           if (stopped) return;
           await writeStatus(`抓取到 ${pageItems.length} 条，璃璃正在选择/决定下一步...`);
 
@@ -1136,7 +1108,7 @@ export default async function handler(req: any) {
           page: currentPage,
           fetchedCount: lastFetchedCount,
           hasNextPage: lastHasNextPage,
-          retrievalMode: lastRetrievalMode,
+          totalMatched: lastTotalMatched,
         });
 
         if (!stopped) await writer.close();
