@@ -363,6 +363,13 @@ interface Message {
     session_limit?: number;
     daily_limit?: number;
   };
+  searchMeta?: {
+    keyword_ja?: string;
+    page?: number;
+    fetched_count?: number;
+    total_matched?: number;
+    has_next_page?: boolean;
+  };
 }
 
 const formatLimit = (n?: number): string => {
@@ -1733,7 +1740,15 @@ const AssetCardSkeleton = React.memo(({
   );
 });
 
-const ChatMessageBubble = React.memo(({ message, largeLayout }: { message: Message; largeLayout: boolean }) => {
+const ChatMessageBubble = React.memo(({
+  message,
+  largeLayout,
+  onRequestMore,
+}: {
+  message: Message;
+  largeLayout: boolean;
+  onRequestMore: (meta: NonNullable<Message['searchMeta']>) => void;
+}) => {
   const { t } = useTranslation();
   const isUser = message.role === 'user';
   
@@ -1805,6 +1820,26 @@ const ChatMessageBubble = React.memo(({ message, largeLayout }: { message: Messa
           {!isUser && message.turnMeta && (
             <div className="mt-3 text-[11px] text-zinc-500 font-mono opacity-70 select-none">
               {t("SessionTurns")} {message.turnMeta.session_turn_count ?? '—'}/{formatLimit(message.turnMeta.session_limit)}
+            </div>
+          )}
+
+          {!isUser && message.searchMeta && (
+            <div className="mt-3 text-[11px] text-zinc-400 font-mono">
+              <div>
+                {t("SearchMetaSummary", {
+                  total: message.searchMeta.total_matched ?? 0,
+                  fetched: message.searchMeta.fetched_count ?? 0,
+                })}
+              </div>
+              {message.searchMeta.has_next_page && (
+                <button
+                  className="mt-2 px-2.5 py-1 rounded-lg text-[11px] border border-white/15 hover:bg-white/10 text-zinc-200"
+                  onClick={() => onRequestMore(message.searchMeta!)}
+                  type="button"
+                >
+                  {t("GetMoreResults")}
+                </button>
+              )}
             </div>
           )}
         </div>
@@ -2402,6 +2437,15 @@ const App = () => {
     }
   };
 
+  const handleRequestMoreFromMeta = (meta: NonNullable<Message["searchMeta"]>) => {
+    const kw = (meta.keyword_ja || "").trim();
+    const nextPage = Math.max(1, Number(meta.page || 1) + 1);
+    const prompt = kw
+      ? t("MoreResultsPromptWithKeyword", { keyword: kw, page: nextPage })
+      : t("MoreResultsPromptGeneric");
+    setInput(prompt);
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!canUseApp) return;
@@ -2469,6 +2513,7 @@ const App = () => {
     // 让 catch 在 AbortError 时也能拿到部分已接收的内容
     let accumulatedText = "";
     let streamBuffer = "";
+    let latestSearchMeta: Message["searchMeta"] | undefined = undefined;
 
     try {
       const response = await fetch('/api/chat', {
@@ -2576,6 +2621,22 @@ const App = () => {
           // 消费掉直到换行符的所有内容
           streamBuffer = streamBuffer.slice(nlIdx + 1);
 
+          if (currentStatus.startsWith("__META__:")) {
+            const rawMeta = currentStatus.slice("__META__:".length).trim();
+            try {
+              const parsedMeta = JSON.parse(rawMeta) as Message["searchMeta"];
+              latestSearchMeta = parsedMeta;
+              setMessages((prev) =>
+                prev.map((m) =>
+                  m.id === modelMsgId ? { ...m, searchMeta: parsedMeta, text: accumulatedText.trimStart() } : m
+                )
+              );
+            } catch {
+              // ignore malformed meta line
+            }
+            continue;
+          }
+
           setMessages((prev) =>
             prev.map((m) =>
               m.id === modelMsgId ? { ...m, status: currentStatus, text: accumulatedText.trimStart() } : m
@@ -2653,6 +2714,7 @@ const App = () => {
         role: 'model', 
         text: finalText, 
         items: items, 
+        searchMeta: latestSearchMeta,
         isStreaming: false,
         isJsonStreaming: false,
         timestamp: Date.now(),
@@ -2814,7 +2876,7 @@ const App = () => {
                   className={reducedMotion ? '' : 'bh-anim-fade-up'}
                   style={getStaggerStyle(i, !reducedMotion, 28, 320)}
                 >
-                  <ChatMessageBubble message={msg} largeLayout={largeLayout} />
+                  <ChatMessageBubble message={msg} largeLayout={largeLayout} onRequestMore={handleRequestMoreFromMeta} />
                 </div>
               ))
             )}
