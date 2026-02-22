@@ -407,6 +407,35 @@ function extractPreviewImageFromBoothJson(data: any): string {
   return "";
 }
 
+function appendDeterministicPicks(params: {
+  pageItems: BoothRawItem[];
+  picked: AssetResult[];
+  pickedIds: Set<string>;
+  exclude: Set<string>;
+  maxPick: number;
+}): number {
+  const { pageItems, picked, pickedIds, exclude, maxPick } = params;
+  let added = 0;
+  for (const raw of pageItems) {
+    if (!raw?.id || !raw?.url) continue;
+    if (exclude.has(raw.id) || pickedIds.has(raw.id)) continue;
+    pickedIds.add(raw.id);
+    picked.push({
+      id: raw.id,
+      title: raw.title,
+      shopName: raw.shopName,
+      price: raw.price,
+      url: raw.url,
+      imageUrl: raw.imageUrl,
+      description: raw.description || "",
+      tags: Array.isArray(raw.tags) ? raw.tags : [],
+    });
+    added++;
+    if (picked.length >= maxPick) break;
+  }
+  return added;
+}
+
 async function enrichPickedItemsPreviewImage(items: AssetResult[]): Promise<void> {
   await Promise.all(
     items.map(async (item) => {
@@ -1002,7 +1031,7 @@ export default async function handler(req: any) {
         let needSummaryZh = first.action === "search" ? first.need_summary_zh : "用户希望找到匹配条件的 VRChat 资产。";
         if (currentKeywordJa) triedKeywords.push(currentKeywordJa);
 
-        // Step 2..N: agent loop（search -> fetch -> select -> (optional) 再 search）
+        // Step 2..N: loop（search -> fetch -> deterministic pick -> (optional) next search）
         for (let step = 0; step < maxSteps; step++) {
           if (stopped) return;
           await writeStatus(`正在检索向量索引：关键词「${currentKeywordJa}」，起始页 ${currentPage}...`);
@@ -1041,18 +1070,25 @@ export default async function handler(req: any) {
             throw e;
           }
           if (stopped) return;
-          await writeStatus(`抓取到 ${pageItems.length} 条，璃璃正在选择/决定下一步...`);
+          const addedCount = appendDeterministicPicks({
+            pageItems,
+            picked,
+            pickedIds,
+            exclude,
+            maxPick,
+          });
+          await writeStatus(`抓取到 ${pageItems.length} 条，确定性筛选新增 ${addedCount} 条。`);
 
-          let decision: AgentDecision;
+          if (picked.length >= minNeed || picked.length >= maxPick) break;
+          if (step >= maxSteps - 1) break;
+
+          await writeStatus("结果不足，璃璃正在决定下一步检索策略...");
+          let next: AgentDecision;
           try {
-            console.log(`[Loop] Step ${step} starting decision...`);
-            decision = await decideNextStepEndToEnd({
+            next = await decideNextStepEndToEnd({
               openai,
               model: modelName,
               messages: clientMessages,
-              candidates: pageItems,
-              candidatesKeywordJa: currentKeywordJa,
-              candidatesPage: currentPage,
               triedKeywords,
               excludeIds: exclude,
               pickedIds,
@@ -1061,96 +1097,28 @@ export default async function handler(req: any) {
               signal: requestSignal,
               language,
             });
-            console.log(`[Loop] Step ${step} decision action: ${decision.action}`);
           } catch (e: any) {
-            console.error(`[Agent] Loop Step ${step} Decision Error:`, e?.message || e);
-            break; 
+            console.error(`[Agent] Loop Step ${step} Next Decision Error:`, e?.message || e);
+            break;
           }
 
           if (stopped) return;
-
-          if (decision.action === "reply") {
-            await write(decision.reply_zh);
+          if (next.action === "reply") {
+            await write(next.reply_zh);
             await writer.close();
             return;
           }
-
-          if (decision.action === "search") {
-            currentKeywordJa = decision.keyword_ja || currentKeywordJa;
-            currentPage = decision.page || 1;
-            needSummaryZh = decision.need_summary_zh || needSummaryZh;
+          if (next.action === "search") {
+            currentKeywordJa = next.keyword_ja || currentKeywordJa;
+            currentPage = next.page || 1;
+            needSummaryZh = next.need_summary_zh || needSummaryZh;
             if (currentKeywordJa && !triedKeywords.includes(currentKeywordJa)) triedKeywords.push(currentKeywordJa);
             continue;
           }
 
-          if (decision.action === "select") {
-            // 把 agent 选择映射成最终 items
-            let selectCountInThisStep = 0;
-            for (const s of decision.selected) {
-              const raw = pageItems.find((x) => x.id === s.id);
-              if (!raw) continue;
-              if (exclude.has(raw.id) || pickedIds.has(raw.id)) continue;
-
-              pickedIds.add(raw.id);
-              selectCountInThisStep++;
-              picked.push({
-                id: raw.id,
-                title: raw.title,
-                shopName: raw.shopName,
-                price: raw.price,
-                url: raw.url,
-                imageUrl: raw.imageUrl,
-                description: s.description_zh || raw.description || "",
-                tags: (s.tags && s.tags.length ? s.tags : raw.tags) || [],
-              });
-            }
-
-            // 策略调整：如果模型返回 done，或者我们已经凑够了 minNeed，或者这一步什么都没选（防止原地打转），则跳出循环进入生成阶段。
-            if (picked.length >= minNeed || decision.done || (selectCountInThisStep === 0 && picked.length > 0)) break;
-
-            // 结果还不够，且还有重试空间：让 agent 再决定下一次 search（翻页/换关键词）
-            // 增加判断：如果已经到了最后一步循环，没必要再请求一次决策，直接 break 让后面生成回复。
-            if (step >= maxSteps - 1) break;
-
-            await writeStatus("结果不足，璃璃正在决定下一步检索策略...");
-            let next: AgentDecision;
-            try {
-              console.log(`[Loop] Step ${step} need more, deciding next search...`);
-              next = await decideNextStepEndToEnd({
-                openai,
-                model: modelName,
-                messages: clientMessages,
-                triedKeywords,
-                excludeIds: exclude,
-                pickedIds,
-                needMin: minNeed,
-                maxPick,
-                signal: requestSignal,
-                language,
-              });
-              console.log(`[Loop] Step ${step} next search decision: ${next.action}`);
-            } catch (e: any) {
-              console.error(`[Agent] Loop Step ${step} Next Decision Error:`, e?.message || e);
-              break;
-            }
-
-            if (stopped) return;
-
-            if (next.action === "reply") {
-              await write(next.reply_zh);
-              await writer.close();
-              return;
-            }
-            if (next.action === "search") {
-              currentKeywordJa = next.keyword_ja || currentKeywordJa;
-              currentPage = next.page || 1;
-              needSummaryZh = next.need_summary_zh || needSummaryZh;
-              if (currentKeywordJa && !triedKeywords.includes(currentKeywordJa)) triedKeywords.push(currentKeywordJa);
-              continue;
-            }
-            // 如果 next.action 又是 select，可能会导致无限循环，这里强制下一次循环
-            continue;
-          }
+          // Fallback: keep current keyword and advance page when no clear search action.
+          currentPage += 1;
+          continue;
         }
 
         // 所有可见回复由 agent 生成（流式输出），不再手工拼接文案。
