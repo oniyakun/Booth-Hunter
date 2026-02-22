@@ -522,8 +522,9 @@ async function generateQueryEmbedding(params: {
   baseURL: string;
   modelName: string;
   text: string;
+  targetDimension: number;
 }): Promise<number[] | null> {
-  const { apiKey, baseURL, modelName, text } = params;
+  const { apiKey, baseURL, modelName, text, targetDimension } = params;
   try {
     let root = baseURL.replace(/\/$/, "");
     let version = "v1beta";
@@ -552,7 +553,11 @@ async function generateQueryEmbedding(params: {
     const data = await response.json();
     const values = data?.embedding?.values;
     if (!Array.isArray(values) || values.length === 0) return null;
-    return values.map((v: any) => Number(v) || 0);
+    const arr = values.map((v: any) => Number(v) || 0);
+    if (!Number.isFinite(targetDimension) || targetDimension <= 0) return arr;
+    if (arr.length === targetDimension) return arr;
+    if (arr.length > targetDimension) return arr.slice(0, targetDimension);
+    return [...arr, ...new Array(targetDimension - arr.length).fill(0)];
   } catch (e: any) {
     console.warn("[Vector] generateQueryEmbedding failed:", e?.message || e);
     return null;
@@ -566,6 +571,7 @@ async function executeVectorSearchRemote(params: {
   apiKey: string;
   baseURL: string;
   embeddingModel: string;
+  targetDimension: number;
   searchApiUrl?: string;
   searchApiToken?: string;
 }): Promise<BoothRawItem[]> {
@@ -576,6 +582,7 @@ async function executeVectorSearchRemote(params: {
     apiKey,
     baseURL,
     embeddingModel,
+    targetDimension,
     searchApiUrl,
     searchApiToken,
   } = params;
@@ -586,6 +593,7 @@ async function executeVectorSearchRemote(params: {
     baseURL,
     modelName: embeddingModel,
     text: query,
+    targetDimension,
   });
   if (!embedding) return [];
 
@@ -665,6 +673,7 @@ export default async function handler(req: any) {
     const embeddingBaseURL = process.env.GEMINI_EMBEDDING_API_BASE_URL || baseURL;
     const modelName = process.env.GEMINI_MODEL || "gemini-3-flash-preview";
     const embeddingModelName = process.env.GEMINI_EMBEDDING_MODEL || "gemini-embedding-001";
+    const vectorEmbeddingDimension = Number(process.env.VECTOR_EMBEDDING_DIMENSION || 2000);
     const vectorSearchApiUrl = process.env.VECTOR_SEARCH_API_URL || 'https://booth-embedding.vrc.one/';
     const vectorSearchApiToken = process.env.VECTOR_SEARCH_API_TOKEN;
 
@@ -980,6 +989,7 @@ export default async function handler(req: any) {
               apiKey: embeddingApiKey || "",
               baseURL: embeddingBaseURL || "",
               embeddingModel: embeddingModelName,
+              targetDimension: vectorEmbeddingDimension,
               searchApiUrl: vectorSearchApiUrl,
               searchApiToken: vectorSearchApiToken,
             });
