@@ -436,77 +436,42 @@ function appendDeterministicPicks(params: {
   return added;
 }
 
-type SearchHardFilters = {
-  include_terms?: string[];
-  exclude_terms?: string[];
-  price_min_jpy?: number;
-  price_max_jpy?: number;
-};
-
-function uniqText(items: string[]): string[] {
-  return Array.from(new Set(items.map((x) => x.trim().toLowerCase()).filter(Boolean)));
-}
-
-function parsePriceHints(text: string): { min?: number; max?: number } {
-  const s = text || "";
-  let min: number | undefined;
-  let max: number | undefined;
-
-  const range = s.match(/([0-9][0-9,]{1,})\s*[-~～]\s*([0-9][0-9,]{1,})/);
-  if (range) {
-    const a = Number((range[1] || "").replace(/,/g, ""));
-    const b = Number((range[2] || "").replace(/,/g, ""));
-    if (Number.isFinite(a) && Number.isFinite(b)) {
-      min = Math.min(a, b);
-      max = Math.max(a, b);
-      return { min, max };
-    }
+function appendModelSelectedPicks(params: {
+  pageItems: BoothRawItem[];
+  selected: BatchPick[];
+  picked: AssetResult[];
+  pickedIds: Set<string>;
+  exclude: Set<string>;
+  maxPick: number;
+}): number {
+  const { pageItems, selected, picked, pickedIds, exclude, maxPick } = params;
+  if (!Array.isArray(selected) || selected.length === 0) return 0;
+  const byId = new Map<string, BoothRawItem>();
+  for (const x of pageItems || []) {
+    if (x?.id) byId.set(String(x.id), x);
   }
-
-  const withContext = /(?:¥|￥|円|jpy|预算|予算|budget)\s*([0-9][0-9,]{1,})/gi;
-  let m: RegExpExecArray | null;
-  while ((m = withContext.exec(s))) {
-    const value = Number((m[1] || "").replace(/,/g, ""));
-    if (!Number.isFinite(value)) continue;
-    const ctx = s.slice(Math.max(0, m.index - 8), Math.min(s.length, m.index + 16)).toLowerCase();
-    if (/(以上|不少于|不低于|at least|over|above|min|>=)/i.test(ctx)) {
-      min = min == null ? value : Math.min(min, value);
-    } else {
-      max = max == null ? value : Math.max(max, value);
-    }
+  let added = 0;
+  for (const s of selected) {
+    const id = String(s?.id || "");
+    if (!id) continue;
+    if (exclude.has(id) || pickedIds.has(id)) continue;
+    const raw = byId.get(id);
+    if (!raw?.url) continue;
+    pickedIds.add(id);
+    picked.push({
+      id: raw.id,
+      title: raw.title,
+      shopName: raw.shopName,
+      price: raw.price,
+      url: raw.url,
+      imageUrl: raw.imageUrl,
+      description: raw.description || s?.description_zh || "",
+      tags: (Array.isArray(s?.tags) && s.tags.length > 0 ? s.tags : raw.tags) || [],
+    });
+    added++;
+    if (picked.length >= maxPick) break;
   }
-  return { min, max };
-}
-
-function extractTermsByPatterns(text: string, patterns: RegExp[]): string[] {
-  const out: string[] = [];
-  for (const re of patterns) {
-    let m: RegExpExecArray | null;
-    while ((m = re.exec(text))) {
-      const term = (m[1] || "").trim();
-      if (term) out.push(term);
-    }
-  }
-  return uniqText(out);
-}
-
-function buildHardFiltersFromQuery(text: string): SearchHardFilters {
-  const source = text || "";
-  const includeTerms = extractTermsByPatterns(source, [
-    /(?:必须|需要|只要|限定|想要)\s*([^\n，。,.!?！？；;]{1,16})/gi,
-    /(?:must have|need|include)\s+([a-z0-9 _-]{1,24})/gi,
-  ]);
-  const excludeTerms = extractTermsByPatterns(source, [
-    /(?:不要|排除|不含|除了)\s*([^\n，。,.!?！？；;]{1,16})/gi,
-    /(?:without|exclude|no)\s+([a-z0-9 _-]{1,24})/gi,
-  ]);
-  const { min, max } = parsePriceHints(source);
-  const out: SearchHardFilters = {};
-  if (includeTerms.length > 0) out.include_terms = includeTerms.slice(0, 8);
-  if (excludeTerms.length > 0) out.exclude_terms = excludeTerms.slice(0, 8);
-  if (Number.isFinite(min as number)) out.price_min_jpy = min;
-  if (Number.isFinite(max as number)) out.price_max_jpy = max;
-  return out;
+  return added;
 }
 
 async function enrichPickedItemsPreviewImage(items: AssetResult[]): Promise<void> {
@@ -588,8 +553,6 @@ async function executeVectorSearchRemote(params: {
   embeddingModel: string;
   targetDimension: number;
   minScore: number;
-  filters?: SearchHardFilters;
-  rankingHints?: SearchHardFilters;
   searchApiUrl?: string;
   searchApiToken?: string;
 }): Promise<{ items: BoothRawItem[]; totalMatched: number; hasMore: boolean; nextOffset: number | null }> {
@@ -602,8 +565,6 @@ async function executeVectorSearchRemote(params: {
     embeddingModel,
     targetDimension,
     minScore,
-    filters,
-    rankingHints,
     searchApiUrl,
     searchApiToken,
   } = params;
@@ -633,8 +594,6 @@ async function executeVectorSearchRemote(params: {
       limit: pageSize,
       offset: normalizedOffset,
       min_score: minScore,
-      filters,
-      ranking_hints: rankingHints,
     }),
   });
 
@@ -671,8 +630,6 @@ async function executeVectorSearchRemoteMultiPage(params: {
   targetFetch: number;
   maxPages: number;
   minScore: number;
-  filters?: SearchHardFilters;
-  rankingHints?: SearchHardFilters;
   apiKey: string;
   baseURL: string;
   embeddingModel: string;
@@ -687,8 +644,6 @@ async function executeVectorSearchRemoteMultiPage(params: {
     targetFetch,
     maxPages,
     minScore,
-    filters,
-    rankingHints,
     apiKey,
     baseURL,
     embeddingModel,
@@ -714,8 +669,6 @@ async function executeVectorSearchRemoteMultiPage(params: {
       offset,
       pageSize: onePageSize,
       minScore,
-      filters,
-      rankingHints,
       apiKey,
       baseURL,
       embeddingModel,
@@ -1120,9 +1073,6 @@ export default async function handler(req: any) {
         for (let step = 0; step < maxSteps; step++) {
           if (stopped) return;
           await writeStatus(`正在检索向量索引：关键词「${currentKeywordJa}」，起始页 ${currentPage}...`);
-          const hardFilters = buildHardFiltersFromQuery(
-            `${userInstruction}\n${needSummaryZh}\n${currentKeywordJa}`
-          );
           let pageItems: BoothRawItem[] = [];
           try {
             const searchResult = await executeVectorSearchRemoteMultiPage({
@@ -1132,8 +1082,6 @@ export default async function handler(req: any) {
               targetFetch: vectorSearchTargetFetch,
               maxPages: vectorSearchMaxPages,
               minScore: vectorSearchMinScore,
-              filters: hardFilters,
-              rankingHints: hardFilters,
               apiKey: embeddingApiKey || "",
               baseURL: embeddingBaseURL || "",
               embeddingModel: embeddingModelName,
@@ -1160,14 +1108,52 @@ export default async function handler(req: any) {
             throw e;
           }
           if (stopped) return;
-          const addedCount = appendDeterministicPicks({
-            pageItems,
-            picked,
-            pickedIds,
-            exclude,
-            maxPick,
-          });
-          await writeStatus(`抓取到 ${pageItems.length} 条，确定性筛选新增 ${addedCount} 条。`);
+          let addedCount = 0;
+          try {
+            const selectDecision = await decideNextStepEndToEnd({
+              openai,
+              model: modelName,
+              messages: clientMessages,
+              candidates: pageItems,
+              candidatesKeywordJa: currentKeywordJa,
+              candidatesPage: currentPage,
+              triedKeywords,
+              excludeIds: exclude,
+              pickedIds,
+              needMin: minNeed,
+              maxPick,
+              signal: requestSignal,
+              language,
+            });
+            if (selectDecision.action === "select") {
+              addedCount = appendModelSelectedPicks({
+                pageItems,
+                selected: selectDecision.selected,
+                picked,
+                pickedIds,
+                exclude,
+                maxPick,
+              });
+            } else {
+              addedCount = appendDeterministicPicks({
+                pageItems,
+                picked,
+                pickedIds,
+                exclude,
+                maxPick,
+              });
+            }
+          } catch (e: any) {
+            console.error(`[Agent] select decision failed: ${e?.message || e}`);
+            addedCount = appendDeterministicPicks({
+              pageItems,
+              picked,
+              pickedIds,
+              exclude,
+              maxPick,
+            });
+          }
+          await writeStatus(`抓取到 ${pageItems.length} 条，模型筛选新增 ${addedCount} 条。`);
 
           if (picked.length >= minNeed || picked.length >= maxPick) break;
           if (step >= maxSteps - 1) break;
