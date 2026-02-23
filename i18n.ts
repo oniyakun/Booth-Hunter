@@ -124,10 +124,6 @@ const resources = {
       "ErrorOccurred": "出错了！你可以发送“重试”来再次尝试。",
       "GithubProject": "GitHub 项目",
       "RemoveImage": "移除图片",
-      "SearchMetaSummary": "匹配 {{total}}，已获取 {{fetched}}",
-      "GetMoreResults": "继续获取更多结果",
-      "MoreResultsPromptWithKeyword": "请继续补充更多结果，关键词保持「{{keyword}}」，优先展示之前未推荐过的项目。可从第 {{page}} 页对应结果继续。",
-      "MoreResultsPromptGeneric": "请继续补充更多结果，优先展示之前未推荐过的项目。",
       "InputError": "输入错误"
     }
   },
@@ -252,10 +248,6 @@ const resources = {
       "ErrorOccurred": "Something went wrong! You can send 'Retry' to try again.",
       "GithubProject": "GitHub Project",
       "RemoveImage": "Remove image",
-      "SearchMetaSummary": "matches {{total}}, fetched {{fetched}}",
-      "GetMoreResults": "Get More Results",
-      "MoreResultsPromptWithKeyword": "Please continue and provide more results. Keep keyword \"{{keyword}}\", prioritize items not recommended yet, and continue from page {{page}} if applicable.",
-      "MoreResultsPromptGeneric": "Please continue and provide more results, prioritizing items not recommended yet.",
       "InputError": "Input Error"
     }
   },
@@ -380,10 +372,6 @@ const resources = {
       "ErrorOccurred": "エラーが発生しました！「リトライ」と送信して再度お試しください。",
       "GithubProject": "GitHub プロジェクト",
       "RemoveImage": "画像を削除",
-      "SearchMetaSummary": "一致 {{total}} 件、取得 {{fetched}} 件",
-      "GetMoreResults": "さらに結果を取得",
-      "MoreResultsPromptWithKeyword": "さらに結果を補足してください。キーワードは「{{keyword}}」のまま、まだ推薦していない項目を優先し、可能なら {{page}} ページ相当の続きからお願いします。",
-      "MoreResultsPromptGeneric": "さらに結果を補足してください。まだ推薦していない項目を優先してください。",
       "InputError": "入力エラー"
     }
   }
