@@ -255,9 +255,9 @@ async function decideNextStepEndToEnd(params: {
   let lastError;
   for (let attempt = 1; attempt <= 3; attempt++) {
     try {
-      // 强制 30s 超时控制，防止 API 挂起无响应，超时自动重试
+      // 强制 60s 超时控制，防止 API 挂起无响应，超时自动重试
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 30000);
+      const timeoutId = setTimeout(() => controller.abort(), 60000);
       
       // 合并传入的 signal
       if (signal) {
