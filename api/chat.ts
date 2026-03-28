@@ -1,4 +1,4 @@
-import OpenAI from "openai";
+﻿import OpenAI from "openai";
 import * as cheerio from "cheerio";
 import { createClient } from "@supabase/supabase-js";
 
@@ -253,11 +253,12 @@ async function decideNextStepEndToEnd(params: {
 
   let res;
   let lastError;
-  for (let attempt = 1; attempt <= 1; attempt++) {
+  for (let attempt = 1; attempt <= 2; attempt++) {
     try {
-      // 强制 60s 超时控制，防止 API 挂起无响应，超时自动重试
+      // 渐进式超时：第1次30秒（快速路径），第2次60秒（复杂问题的重试机会）
+      const timeoutMs = attempt === 1 ? 30000 : 60000;
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 60000);
+      const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
       
       // 合并传入的 signal
       if (signal) {
@@ -265,7 +266,7 @@ async function decideNextStepEndToEnd(params: {
         signal.addEventListener('abort', onAbort);
       }
 
-      console.log(`[Agent] decideNextStep attempt ${attempt}/3...`);
+      console.log(`[Agent] decideNextStep attempt ${attempt}/2, timeout=${timeoutMs}ms...`);
       res = await openai.chat.completions.create(
         {
           model,
@@ -276,6 +277,7 @@ async function decideNextStepEndToEnd(params: {
       ).finally(() => clearTimeout(timeoutId));
       
       // 成功则跳出重试循环
+      console.log(`[Agent] Attempt ${attempt} succeeded`);
       break;
     } catch (e: any) {
       lastError = e;
@@ -286,11 +288,12 @@ async function decideNextStepEndToEnd(params: {
         throw e; // 用户主动中断，不重试
       }
       
-      if (attempt === 3) {
-        console.error("[Agent] decideNextStep final failure after 3 attempts.");
-        return { action: "reply", reply_zh: "抱歉喵，璃璃刚才非常努力地思考了，但大脑还是有点转不过来... 你可以告诉璃璃“再试一次”"};
+      if (attempt === 2) {
+        console.error("[Agent] decideNextStep final failure after 2 attempts.");
+        return { action: "reply", reply_zh: "抱歉喵，璃璃刚才非常努力地思考了，但大脑还是有点转不过来... 你可以告诉璃璃“再试一次”噢！"};
       }
       // 继续下一次尝试
+      console.log(`[Agent] Retrying with longer timeout...`);
     }
   }
 
@@ -1017,3 +1020,5 @@ export default async function handler(req: any) {
     return withJsonHeaders(500, { error: e.message });
   }
 }
+
+
