@@ -253,7 +253,7 @@ async function decideNextStepEndToEnd(params: {
 
   let res;
   let lastError;
-  for (let attempt = 1; attempt <= 3; attempt++) {
+  for (let attempt = 1; attempt <= 1; attempt++) {
     try {
       // 强制 60s 超时控制，防止 API 挂起无响应，超时自动重试
       const controller = new AbortController();
@@ -288,7 +288,7 @@ async function decideNextStepEndToEnd(params: {
       
       if (attempt === 3) {
         console.error("[Agent] decideNextStep final failure after 3 attempts.");
-        return { action: "reply", reply_zh: "抱歉喵，璃璃刚才非常努力地思考了，但大脑还是有点转不过来... 可能是网络不太通畅，咱们稍后再试好不好喵？" };
+        return { action: "reply", reply_zh: "抱歉喵，璃璃刚才非常努力地思考了，但大脑还是有点转不过来... 你可以告诉璃璃“再试一次”"};
       }
       // 继续下一次尝试
     }
