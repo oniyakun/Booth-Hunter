@@ -1429,7 +1429,7 @@ const Sidebar = ({
       >
         <div className="h-full bh-surface-strong border-r border-white/5">
         <div className="flex flex-col h-full">
-          <div className={`px-4 h-[72px] border-b border-white/5 flex items-center ${collapsed ? 'justify-center' : 'justify-between'}`}>
+          <div className={`flex-none px-4 h-[72px] border-b border-white/5 flex items-center ${collapsed ? 'justify-center' : 'justify-between'}`}>
             <div className={`flex items-center text-white font-bold ${collapsed ? 'justify-center' : 'gap-3'}`}>
               <div className="w-9 h-9 rounded-2xl flex items-center justify-center text-white text-sm bh-btn-primary">B</div>
               {!collapsed && (
@@ -1443,7 +1443,7 @@ const Sidebar = ({
             </button>
           </div>
 
-          <div className="p-4">
+          <div className="flex-none p-4">
             <button
               onClick={() => { onNewChat(); if(window.innerWidth < 768) onClose(); }}
               className={`w-full text-white flex items-center ${collapsed ? 'justify-center h-11 px-0' : 'gap-2 px-4 py-3'} rounded-2xl transition-all font-medium bh-btn-secondary`}
@@ -1455,7 +1455,7 @@ const Sidebar = ({
             </button>
           </div>
 
-          <div className={`flex-grow overflow-y-auto ${collapsed ? 'px-2' : 'px-4'} space-y-1`}>
+          <div className={`flex-grow overflow-y-auto min-h-0 ${collapsed ? 'px-2' : 'px-4'} space-y-1`}>
             {!collapsed && (
               <h3 className="px-4 text-[10px] font-bold text-zinc-500 uppercase tracking-[0.2em] mb-4 mt-6">{t("History")}</h3>
             )}
@@ -1483,7 +1483,7 @@ const Sidebar = ({
                   <button
                     onClick={() => { onSelectSession(session.id); if(window.innerWidth < 768) onClose(); }}
                     title={session.title || t("UntitledChat")}
-                    className={`flex-grow ${collapsed ? 'h-11 px-0 justify-center text-center' : 'px-4 py-3 text-left'} rounded-2xl text-sm flex items-center ${collapsed ? '' : 'gap-3'} transition-all ${
+                    className={`flex-grow min-w-0 ${collapsed ? 'h-11 px-0 justify-center text-center' : 'px-4 py-3 text-left'} rounded-2xl text-sm flex items-center ${collapsed ? '' : 'gap-3'} transition-all ${
                       currentSessionId === session.id 
                         ? "bg-[#fc4d50]/10 text-[#fc4d50] border border-[#fc4d50]/20" 
                         : "text-zinc-400 hover:bg-zinc-800/50 hover:text-zinc-200"
@@ -1491,9 +1491,8 @@ const Sidebar = ({
                   >
                     <MessageSquare size={16} className="flex-shrink-0" />
                     {!collapsed && (
-                      <span className="truncate text-left">
-                        {session.title?.slice(0, 15) || t("UntitledChat")}
-                        {(session.title?.length || 0) > 10 ? "..." : ""}
+                      <span className="truncate min-w-0 text-left">
+                        {session.title || t("UntitledChat")}
                       </span>
                     )}
                   </button>
@@ -1512,7 +1511,7 @@ const Sidebar = ({
             )}
           </div>
 
-          <div className="p-4 border-t border-zinc-800">
+          <div className="flex-none p-4 border-t border-zinc-800">
             {user ? (
               collapsed ? (
                 <div className="flex items-center justify-center">
