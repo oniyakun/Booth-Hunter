@@ -253,10 +253,10 @@ async function decideNextStepEndToEnd(params: {
 
   let res;
   let lastError;
-  for (let attempt = 1; attempt <= 2; attempt++) {
+  for (let attempt = 1; attempt <= 1; attempt++) {
     try {
-      // 渐进式超时：第1次30秒（快速路径），第2次60秒（复杂问题的重试机会）
-      const timeoutMs = attempt === 1 ? 30000 : 60000;
+      // 单次 90 秒超时，没结果就直接超时
+      const timeoutMs = 90000;
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
       
@@ -266,7 +266,7 @@ async function decideNextStepEndToEnd(params: {
         signal.addEventListener('abort', onAbort);
       }
 
-      console.log(`[Agent] decideNextStep attempt ${attempt}/2, timeout=${timeoutMs}ms...`);
+      console.log(`[Agent] decideNextStep timeout=${timeoutMs}ms...`);
       res = await openai.chat.completions.create(
         {
           model,
@@ -276,8 +276,8 @@ async function decideNextStepEndToEnd(params: {
         { signal: controller.signal } as any
       ).finally(() => clearTimeout(timeoutId));
       
-      // 成功则跳出重试循环
-      console.log(`[Agent] Attempt ${attempt} succeeded`);
+      // 成功
+      console.log(`[Agent] Decision succeeded`);
       break;
     } catch (e: any) {
       lastError = e;
@@ -288,12 +288,8 @@ async function decideNextStepEndToEnd(params: {
         throw e; // 用户主动中断，不重试
       }
       
-      if (attempt === 2) {
-        console.error("[Agent] decideNextStep final failure after 2 attempts.");
-        return { action: "reply", reply_zh: "抱歉喵，璃璃刚才非常努力地思考了，但大脑还是有点转不过来... 你可以告诉璃璃“再试一次”噢！"};
-      }
-      // 继续下一次尝试
-      console.log(`[Agent] Retrying with longer timeout...`);
+      console.error("[Agent] decideNextStep timeout or error.");
+      return { action: "reply", reply_zh: "抱歉喵，璃璃刚才非常努力地思考了，但大脑还是有点转不过来... 你可以告诉璃璃“再试一次”噢！"};
     }
   }
 
@@ -1020,5 +1016,7 @@ export default async function handler(req: any) {
     return withJsonHeaders(500, { error: e.message });
   }
 }
+
+
 
 
