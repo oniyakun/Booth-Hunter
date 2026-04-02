@@ -2470,17 +2470,19 @@ const App = () => {
     let streamBuffer = "";
 
     try {
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+      };
+      const token = await getSupabaseAccessToken();
+      if (token) {
+        headers.Authorization = `Bearer ${token}`;
+      } else if (visitorId) {
+        headers['x-visitor-id'] = visitorId;
+      }
+
       const response = await fetch('/api/chat', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(await (async () => {
-            const token = await getSupabaseAccessToken();
-            if (token) return { Authorization: `Bearer ${token}` };
-            if (visitorId) return { 'x-visitor-id': visitorId };
-            return {};
-          })()),
-        },
+        headers,
         body: JSON.stringify({ 
           messages: updatedMessages, 
           chat_id: sessionId,
