@@ -331,7 +331,6 @@ async function uploadChatImage(blob: Blob, token: string | null, visitorId: stri
   const headers: Record<string, string> = {};
   headers["Content-Type"] = "application/json";
   if (token) headers.Authorization = `Bearer ${token}`;
-  else if (visitorId) headers["x-visitor-id"] = visitorId;
 
   const dataUrl = await blobToDataUrl(blob);
   const response = await fetch("/api/upload-image", {
@@ -2826,6 +2825,26 @@ const App = () => {
     }
   };
 
+  const ensureImageUploadAllowed = (): boolean => {
+    if (user && emailVerified) return true;
+    if (!user) {
+      pushToast({
+        type: 'info',
+        title: t("LoginRegister"),
+        message: t("LoginPrompt"),
+      });
+      setIsAuthOpen(true);
+      return false;
+    }
+    return false;
+  };
+
+  const handleImageButtonClick = () => {
+    if (imageProcessing) return;
+    if (!ensureImageUploadAllowed()) return;
+    fileInputRef.current?.click();
+  };
+
   const handleDeleteSessionWithStorageCleanup = async (id: string) => {
     if (!user || !isUserEmailVerified(user)) return;
     const ok = await confirmAsync({
@@ -2866,6 +2885,7 @@ const App = () => {
     // reset input value so selecting the same file again triggers onChange
     e.target.value = "";
     if (!file) return;
+    if (!ensureImageUploadAllowed()) return;
     await processImageFileUpload(file);
   };
 
@@ -2878,6 +2898,7 @@ const App = () => {
     if (!file) return;
 
     e.preventDefault();
+    if (!ensureImageUploadAllowed()) return;
     await processImageFileUpload(file);
   };
 
@@ -3175,6 +3196,7 @@ const App = () => {
             if (!prev) return prev;
             const shouldTrack =
               currentStatus.includes("图片反向搜索") ||
+              currentStatus.includes("图片视觉匹配") ||
               currentStatus.includes("图片线索已提取");
             if (!shouldTrack) return prev;
 
@@ -3600,8 +3622,8 @@ const App = () => {
             <form onSubmit={handleSubmit} className="relative flex items-center gap-3">
               <button
                 type="button"
-                onClick={() => fileInputRef.current?.click()}
-                disabled={imageProcessing || !canUseApp}
+                onClick={handleImageButtonClick}
+                disabled={imageProcessing || (!user && !visitorId) || (!!user && !emailVerified)}
                 className="p-3.5 text-zinc-300 hover:text-white transition-all disabled:opacity-60 disabled:hover:bg-transparent disabled:cursor-not-allowed bh-icon-btn"
                 title="Upload Image"
               >

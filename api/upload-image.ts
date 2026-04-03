@@ -47,10 +47,8 @@ export default async function handler(req: any, res: any): Promise<void> {
 
     const authHeader = String(req.headers?.authorization || "");
     const token = authHeader.toLowerCase().startsWith("bearer ") ? authHeader.slice(7) : "";
-    const visitorId = String(req.headers?.["x-visitor-id"] || "").trim();
-
-    if (!token && !visitorId) {
-      sendJson(res, 401, { error: "Missing authentication" });
+    if (!token) {
+      sendJson(res, 401, { error: "Login required for image upload" });
       return;
     }
 
@@ -58,21 +56,12 @@ export default async function handler(req: any, res: any): Promise<void> {
       auth: { persistSession: false, autoRefreshToken: false },
     });
 
-    let ownerPath = "";
-    if (token) {
-      const { data, error } = await supabase.auth.getUser(token);
-      if (error || !data?.user?.id) {
-        sendJson(res, 401, { error: "Invalid token" });
-        return;
-      }
-      ownerPath = `users/${sanitizePathPart(data.user.id)}`;
-    } else {
-      if (visitorId.length < 8) {
-        sendJson(res, 400, { error: "Invalid visitor id" });
-        return;
-      }
-      ownerPath = `guests/${sanitizePathPart(visitorId)}`;
+    const { data: authData, error } = await supabase.auth.getUser(token);
+    if (error || !authData?.user?.id) {
+      sendJson(res, 401, { error: "Invalid token" });
+      return;
     }
+    const ownerPath = `users/${sanitizePathPart(authData.user.id)}`;
 
     const body = typeof req.body === "string" ? JSON.parse(req.body) : req.body;
     const dataUrl = typeof body?.dataUrl === "string" ? body.dataUrl : "";
@@ -115,14 +104,14 @@ export default async function handler(req: any, res: any): Promise<void> {
       return;
     }
 
-    const { data } = supabase.storage.from(bucket).getPublicUrl(objectPath);
-    if (!data?.publicUrl) {
+    const { data: publicUrlData } = supabase.storage.from(bucket).getPublicUrl(objectPath);
+    if (!publicUrlData?.publicUrl) {
       sendJson(res, 500, { error: "Failed to create public URL" });
       return;
     }
 
-    console.log("[upload-image] success", { publicUrl: data.publicUrl });
-    sendJson(res, 200, { publicUrl: data.publicUrl, path: objectPath, bucket });
+    console.log("[upload-image] success", { publicUrl: publicUrlData.publicUrl });
+    sendJson(res, 200, { publicUrl: publicUrlData.publicUrl, path: objectPath, bucket });
   } catch (e: any) {
     console.error("[upload-image] fatal:", e?.message || e);
     sendJson(res, 500, { error: e?.message || "Unknown error" });

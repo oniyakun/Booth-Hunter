@@ -135,9 +135,13 @@ function normalizeKeywordList(values: unknown[]): string[] {
 function summarizeReverseImagePayload(payload: any, imageUrl: string): ReverseImageContext | undefined {
   if (!payload || typeof payload !== "object") return undefined;
 
-  const visualMatches = Array.isArray(payload.image_results) ? payload.image_results : [];
-  const inlineMatches = Array.isArray(payload.inline_images) ? payload.inline_images : [];
-  const combined = [...visualMatches, ...inlineMatches];
+  const visualMatches = Array.isArray(payload.visual_matches) ? payload.visual_matches : [];
+  const exactMatches = Array.isArray(payload.exact_matches) ? payload.exact_matches : [];
+  const products = Array.isArray(payload.products) ? payload.products : [];
+  const knowledgeGraph = payload.knowledge_graph && typeof payload.knowledge_graph === "object"
+    ? [payload.knowledge_graph]
+    : [];
+  const combined = [...visualMatches, ...exactMatches, ...products, ...knowledgeGraph];
 
   const matches: ReverseImageMatch[] = combined
     .map((item: any) => ({
@@ -145,14 +149,21 @@ function summarizeReverseImagePayload(payload: any, imageUrl: string): ReverseIm
       source:
         typeof item?.source === "string" ? item.source.trim() :
         typeof item?.source_name === "string" ? item.source_name.trim() :
+        typeof item?.merchant_name === "string" ? item.merchant_name.trim() :
+        typeof item?.seller === "string" ? item.seller.trim() :
+        typeof item?.subtitle === "string" ? item.subtitle.trim() :
+        typeof item?.domain === "string" ? item.domain.trim() :
         typeof item?.displayed_link === "string" ? item.displayed_link.trim() :
         undefined,
       link:
         typeof item?.link === "string" ? item.link.trim() :
+        typeof item?.thumbnail_link === "string" ? item.thumbnail_link.trim() :
         typeof item?.source_link === "string" ? item.source_link.trim() :
         undefined,
       snippet:
         typeof item?.snippet === "string" ? item.snippet.trim() :
+        typeof item?.description === "string" ? item.description.trim() :
+        typeof item?.price === "string" ? item.price.trim() :
         typeof item?.original === "string" ? item.original.trim() :
         undefined,
     }))
@@ -161,11 +172,15 @@ function summarizeReverseImagePayload(payload: any, imageUrl: string): ReverseIm
 
   const bestGuess = typeof payload?.search_information?.query_displayed === "string"
     ? payload.search_information.query_displayed.trim()
-    : typeof payload?.search_parameters?.q === "string"
-      ? payload.search_parameters.q.trim()
-      : typeof payload?.image_results?.[0]?.title === "string"
-        ? payload.image_results[0].title.trim()
-        : "";
+    : typeof payload?.knowledge_graph?.title === "string"
+      ? payload.knowledge_graph.title.trim()
+      : typeof payload?.visual_matches?.[0]?.title === "string"
+        ? payload.visual_matches[0].title.trim()
+        : typeof payload?.exact_matches?.[0]?.title === "string"
+          ? payload.exact_matches[0].title.trim()
+          : typeof payload?.products?.[0]?.title === "string"
+            ? payload.products[0].title.trim()
+            : "";
 
   const keywords = normalizeKeywordList([
     bestGuess,
@@ -199,11 +214,12 @@ async function searchGoogleReverseImage(imageUrl: string, signal?: AbortSignal):
   if (!serpApiKey || !isHttpUrl(imageUrl)) return undefined;
 
   const url = new URL("https://serpapi.com/search.json");
-  url.searchParams.set("engine", "google_reverse_image");
-  url.searchParams.set("image_url", imageUrl);
+  url.searchParams.set("engine", "google_lens");
+  url.searchParams.set("url", imageUrl);
+  url.searchParams.set("type", "visual_matches");
   url.searchParams.set("api_key", serpApiKey);
   url.searchParams.set("hl", "ja");
-  url.searchParams.set("gl", "jp");
+  url.searchParams.set("country", "jp");
 
   const response = await fetch(url.toString(), {
     method: "GET",
@@ -214,7 +230,7 @@ async function searchGoogleReverseImage(imageUrl: string, signal?: AbortSignal):
   });
 
   if (!response.ok) {
-    throw new Error(`SerpApi reverse image failed: ${response.status}`);
+    throw new Error(`SerpApi google_lens failed: ${response.status}`);
   }
 
   const payload = await response.json();
@@ -299,6 +315,7 @@ async function decideNextStepEndToEnd(params: {
   signal?: AbortSignal;
   language?: string;
   reverseImageContext?: ReverseImageContext;
+  reverseImageAttempted?: boolean;
 }): Promise<AgentDecision> {
   const {
     openai,
@@ -315,6 +332,7 @@ async function decideNextStepEndToEnd(params: {
     signal,
     language = "zh",
     reverseImageContext,
+    reverseImageAttempted = false,
   } = params;
 
   const { text: userInstruction, hasImage } = extractUserInstruction(messages);
@@ -328,23 +346,24 @@ async function decideNextStepEndToEnd(params: {
     role: "system",
     content: [
       "你是一个叫璃璃的可爱助手，是用户的 VRChat Booth 资产查找助手。你的语气比较可爱，随时愿意为用户提供帮助！",
-      `\n用户当前的语言偏好是：${langName}。请务必使用 ${langName} 进行回复（reply_zh / reason_zh / next_search_prompt_zh 字段的内容请使用 ${langName}）。`,
+      `\n用户当前的语言偏好是：${langName}。请务必使用 ${langName} 进行输出（reply_zh / reason_zh / next_search_prompt_zh 字段的内容请使用 ${langName}）。`,
       "\n你需要根据【完整对话上下文】决定下一步动作：",
       "\n- action=reply：直接回复（闲聊/感谢/问怎么用/非找商品）。回复时请保持璃璃可爱的语气。",
-      "\n- action=search：生成用于 Booth 搜索的日文关键词与页码，并给出“指导下一次搜索”的中文 prompt。",
-      "\n- action=reverse_image_search：当用户提供了图片，但你暂时还无法确定一模一样的商品、也无法稳定生成足够精确的 Booth 搜索词时，请先请求调用图片反向搜索工具。",
+      "\n- action=search：生成用于 Booth 搜索的日文关键词与页码，并给出“下一次怎么搜”的简短指导。",
+      "\n- action=reverse_image_search：当用户提供了图片，但你暂时还无法确定一模一样的商品、也无法稳定生成足够精确的 Booth 搜索词时，请先请求调用图片视觉匹配工具。",
       "\n- action=select：当提供了 candidates 时，从 candidates 中挑选商品。",
       "\n\n重要规则：",
       "\n1) 输出必须是严格 JSON（不要 Markdown，不要解释）。",
       "\n2) keyword_ja 必须是日文（可包含空格）；page 为正整数。",
-      "\n2.1) next_search_prompt_zh 不是泛泛摘要，而是给下一次 Booth 搜索的执行指导。它必须尽量具体，说明“下一次为什么这样搜、应该优先搜什么词、是否需要翻页/换词/缩小范围”。",
-      "\n2.2) 一个好的 next_search_prompt_zh 至少应包含以下信息中的大部分：目标更像商品名还是店铺名、下一次应优先使用哪类关键词、是否继续当前页/下一页/换关键词、如果没命中应该如何调整。",
+      "\n2.1) next_search_prompt_zh 只需要简短的搜索指导，不要写成助手回复，不要带可爱语气，不要寒暄。",
+      "\n2.2) next_search_prompt_zh 应直接说明下一次该怎么搜，例如：优先搜商品名、去掉店铺名、翻到下一页、换成更短关键词。",
       "\n3) 若用户在续聊（例如下一页/更多/换关键词），要结合 hint/上下文理解。",
       "\n4) select 时只能从 candidates 里选，且不要选 exclude_ids/picked_ids；最多选择 max_pick 个。",
       "\n5) 若不确定，优先 search（不要错过用户检索意图）。只有在普通 Booth 搜索暂时无法锁定一模一样的目标时，才使用 action=reverse_image_search。",
       "\n5.1) 如果当前还没有进行过任何 Booth 搜索（tried_keywords 为空，且没有 candidates），默认先 action=search，不要一上来就请求反向搜图。",
+      "\n5.2) 如果 reverse_image_search 已经尝试过，但 reverse_image_context 仍为空或线索不足，而用户提供了图片，你必须直接根据图片内容理解来构造 Booth 搜索词，例如从服装类型、轮廓、配色、风格、配件、角色特征中提取更像商品标题的关键词。",
       "\n6) 如果 reverse_image_context 里同时包含商品名和店铺名，你必须先判断哪一部分是商品名、作品名、衣装名，哪一部分是店铺名、社团名、作者名。",
-      "\n7) 生成 Booth 搜索词时，默认只使用商品名/作品名/衣装名，不要把店铺名、社团名、作者名拼进 keyword_ja，除非用户明确要求限定店铺，或者仅用商品名完全无法区分目标。",
+      "\n7) 生成 Booth 搜索词时，默认只使用商品名/作品名/衣装名，不要把店铺名、社团名、作者名以及VRChat等关键词拼进 keyword_ja，除非用户明确要求限定店铺，或者仅用商品名完全无法区分目标。",
       "\n8) 反向搜图结果里若出现类似“店铺名 + 商品名”“作者名 | 商品名”“商品名 @ 店铺名”，应优先抽取商品名作为主搜索词。",
       "\n9) 当 reverse_image_context 已经能识别商品名时，keyword_ja 应尽量短、尽量像 Booth 上会直接命中的商品名，而不是自然语言句子。",
       "\n10) 例如：如果识别到“HANSORI Quiet Rebellion”，且 HANSORI 是店铺名、Quiet Rebellion 是商品名，则 keyword_ja 应优先是“Quiet Rebellion”，而不是“HANSORI Quiet Rebellion”。",
@@ -353,7 +372,7 @@ async function decideNextStepEndToEnd(params: {
       "\n13) 如果当前已经提供了 candidates，但你发现这些候选里没有一模一样的目标、或者仍无法判断正确商品，此时可以输出 action=reverse_image_search，请求额外图像线索。",
       "\n\n输出格式四选一：",
       "\n- {\"action\":\"reply\",\"reply_zh\":\"...\"}",
-      "\n- {\"action\":\"search\",\"keyword_ja\":\"...\",\"next_search_prompt_zh\":\"下一次应优先搜索某商品名；如果当前页结果不对，就换成更短的商品名关键词而不是店铺名；本轮先从第1页开始。\",\"page\":1}",
+      "\n- {\"action\":\"search\",\"keyword_ja\":\"...\",\"next_search_prompt_zh\":\"优先搜商品名；先看第1页；如果结果不对就去掉店铺名。\",\"page\":1}",
       "\n- {\"action\":\"reverse_image_search\",\"reason_zh\":\"...\"}",
       "\n- {\"action\":\"select\",\"selected\":[{\"id\":\"...\",\"description_zh\":\"...\",\"tags\":[\"...\"],\"reason_zh\":\"...\"}],\"done\":true}",
     ].join(""),
@@ -379,6 +398,7 @@ async function decideNextStepEndToEnd(params: {
       picked_count: pickedIds.size,
       need_min: needMin,
       max_pick: maxPick,
+      reverse_image_attempted: reverseImageAttempted,
       reverse_image_context: reverseImageContext
         ? {
             summary: reverseImageContext.summary,
@@ -511,7 +531,7 @@ async function decideNextStepEndToEnd(params: {
   return {
     action: "search",
     keyword_ja: keyword_ja || hint.keywordJa || userInstruction.slice(0, 24),
-    next_search_prompt_zh: next_search_prompt_zh || "下一次 Booth 搜索应先围绕更像商品名的关键词进行检索；如果当前关键词过宽或混入店铺名，就改成更短、更接近商品标题的词；先从第 1 页开始，再根据结果决定是否翻页或换词。",
+    next_search_prompt_zh: next_search_prompt_zh || "优先搜更像商品名的词；先看第 1 页；如果结果不准就换更短关键词。",
     page,
   };
 }
@@ -943,7 +963,7 @@ export default async function handler(req: any) {
         const userText = [
           `用户指令：${userInstruction}`,
           `\n下一次搜索指导：${nextSearchPromptZh}`,
-          reverseImageContext ? `\n图片反搜线索：${reverseImageContext.summary}` : "",
+          reverseImageContext ? `\n图片视觉匹配线索：${reverseImageContext.summary}` : "",
           `\nkeyword_ja：${keywordJa}`,
           `\npage：${page}`,
           `\nfetched_count：${fetchedCount}`,
@@ -1014,7 +1034,7 @@ export default async function handler(req: any) {
           if (reason) {
             await writeStatus(`璃璃决定补充图片线索：${reason}`);
           }
-          await writeStatus("正在进行图片反向搜索...");
+          await writeStatus("正在进行图片视觉匹配...");
           const next = await searchGoogleReverseImage(imageUrl, requestSignal);
           if (next) {
             await writeReverseImageDebug(next);
@@ -1034,6 +1054,7 @@ export default async function handler(req: any) {
         const { text: userInstruction } = extractUserInstruction(clientMessages);
         const lastUserImage = extractLastUserImage(clientMessages);
         let reverseImageContext: ReverseImageContext | undefined;
+        let reverseImageAttempted = false;
 
         if (stopped) return;
 
@@ -1072,6 +1093,7 @@ export default async function handler(req: any) {
           signal: requestSignal,
           language,
           reverseImageContext,
+          reverseImageAttempted,
         });
 
         if (stopped) return;
@@ -1083,7 +1105,11 @@ export default async function handler(req: any) {
         }
 
         if (firstDecision.action === "reverse_image_search") {
+          reverseImageAttempted = true;
           reverseImageContext = await runReverseImageSearchIfNeeded(lastUserImage, reverseImageContext, firstDecision.reason_zh);
+          if (!reverseImageContext && lastUserImage) {
+            await writeStatus("图片视觉匹配没有命中明确线索，璃璃正在改为理解图片内容...");
+          }
           await writeStatus("璃璃正在根据图片线索重新规划...");
           firstDecision = await decideNextStepEndToEnd({
             openai,
@@ -1097,6 +1123,7 @@ export default async function handler(req: any) {
             signal: requestSignal,
             language,
             reverseImageContext,
+            reverseImageAttempted,
           });
 
           if (firstDecision.action === "reply") {
@@ -1108,7 +1135,7 @@ export default async function handler(req: any) {
             firstDecision = {
               action: "search",
               keyword_ja: userInstruction.slice(0, 24),
-              next_search_prompt_zh: "已经补充过图片线索。下一次 Booth 搜索应优先使用更接近商品名的关键词，不要直接照搬整句需求；先从第 1 页开始，如果结果仍不准，再缩短关键词或改用识别到的商品名。",
+              next_search_prompt_zh: "按图片内容提取服装或物品关键词；先看第 1 页；不准就换更具体的外观词。",
               page: 1,
             };
           }
@@ -1116,7 +1143,7 @@ export default async function handler(req: any) {
 
         let currentKeywordJa = firstDecision.action === "search" ? firstDecision.keyword_ja : userInstruction.slice(0, 24);
         let currentPage = firstDecision.action === "search" ? firstDecision.page : 1;
-        let nextSearchPromptZh = firstDecision.action === "search" ? firstDecision.next_search_prompt_zh : "下一次 Booth 搜索应先围绕更像商品名的关键词进行检索；如果当前关键词过宽或混入店铺名，就改成更短、更接近商品标题的词；先从第 1 页开始，再根据结果决定是否翻页或换词。";
+        let nextSearchPromptZh = firstDecision.action === "search" ? firstDecision.next_search_prompt_zh : "按图片内容提取更像商品标题的关键词；先看第 1 页；如果结果不准就换更具体的外观词。";
         if (firstDecision.action === "search") {
           await writeSearchDecisionDebug({
             keywordJa: currentKeywordJa,
@@ -1155,6 +1182,7 @@ export default async function handler(req: any) {
               signal: requestSignal,
               language,
               reverseImageContext,
+              reverseImageAttempted,
             });
             console.log(`[Loop] Step ${step} decision action: ${decision.action}`);
           } catch (e: any) {
@@ -1185,7 +1213,11 @@ export default async function handler(req: any) {
           }
 
           if (decision.action === "reverse_image_search") {
+            reverseImageAttempted = true;
             reverseImageContext = await runReverseImageSearchIfNeeded(lastUserImage, reverseImageContext, decision.reason_zh);
+            if (!reverseImageContext && lastUserImage) {
+              await writeStatus("图片视觉匹配没有命中明确线索，璃璃正在改为理解图片内容...");
+            }
             await writeStatus("璃璃正在结合新的图片线索重新判断...");
             continue;
           }
@@ -1256,6 +1288,7 @@ export default async function handler(req: any) {
                 signal: requestSignal,
                 language,
                 reverseImageContext,
+                reverseImageAttempted,
               });
               console.log(`[Loop] Step ${step} next search decision: ${next.action}`);
             } catch (e: any) {
@@ -1271,7 +1304,11 @@ export default async function handler(req: any) {
               return;
             }
             if (next.action === "reverse_image_search") {
+              reverseImageAttempted = true;
               reverseImageContext = await runReverseImageSearchIfNeeded(lastUserImage, reverseImageContext, next.reason_zh);
+              if (!reverseImageContext && lastUserImage) {
+                await writeStatus("图片视觉匹配没有命中明确线索，璃璃正在改为理解图片内容...");
+              }
               await writeStatus("璃璃拿到新的图片线索后，准备继续检索...");
               continue;
             }
