@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from "react";
 import { createRoot } from "react-dom/client";
-import { Search, Image as ImageIcon, Upload, ExternalLink, Loader2, Sparkles, ShoppingBag, X, AlertCircle, Terminal, ChevronDown, ChevronUp, Send, Bot, User, MoveHorizontal, Hammer, LogOut, History, Plus, Menu, UserCircle, Layout, MessageSquare, Trash2, Github, Shield, Users, Pause, Globe } from "lucide-react";
+import { Search, Image as ImageIcon, Upload, ExternalLink, Loader2, Sparkles, ShoppingBag, X, AlertCircle, Terminal, ChevronDown, ChevronUp, Send, Bot, User, MoveHorizontal, Hammer, LogOut, History, Plus, Menu, UserCircle, Layout, MessageSquare, Trash2, Github, Shield, Users, Pause, Globe, Copy } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import "./i18n";
 import { useTranslation } from "react-i18next";
@@ -243,6 +243,8 @@ const UserLimitModal = ({
 
 // --- Image Utils ---
 
+const CHAT_IMAGE_MAX_BYTES = 8 * 1024 * 1024;
+
 async function blobToDataUrl(blob: Blob): Promise<string> {
   return await new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -259,11 +261,11 @@ async function blobToDataUrl(blob: Blob): Promise<string> {
  * 用于减少发送给后端/模型的体积。
  * 注意：PNG 的透明通道会被白底替换；动图（GIF）会只保留第一帧。
  */
-async function compressImageFileToJpegDataUrl(
+async function compressImageFileToJpegBlob(
   file: File,
   quality: number = 0.8,
   maxSize: number = 1080
-): Promise<string> {
+): Promise<Blob> {
   // Some formats (e.g. SVG) are not safe to draw to canvas across browsers
   if (!file.type.startsWith("image/")) {
     throw new Error("Not an image file");
@@ -308,15 +310,13 @@ async function compressImageFileToJpegDataUrl(
     else if (imgEl) ctx.drawImage(imgEl, 0, 0, width, height);
     else throw new Error("No image source available");
 
-    const blob = await new Promise<Blob>((resolve, reject) => {
+    return await new Promise<Blob>((resolve, reject) => {
       canvas.toBlob(
         (b) => (b ? resolve(b) : reject(new Error("canvas.toBlob returned null"))),
         "image/jpeg",
         quality
       );
     });
-
-    return await blobToDataUrl(blob);
   } finally {
     try {
       bitmap?.close();
@@ -325,6 +325,31 @@ async function compressImageFileToJpegDataUrl(
     }
     if (objectUrl) URL.revokeObjectURL(objectUrl);
   }
+}
+
+async function uploadChatImage(blob: Blob, token: string | null, visitorId: string | null, sessionId: string): Promise<string> {
+  const headers: Record<string, string> = {};
+  headers["Content-Type"] = "application/json";
+  if (token) headers.Authorization = `Bearer ${token}`;
+  else if (visitorId) headers["x-visitor-id"] = visitorId;
+
+  const dataUrl = await blobToDataUrl(blob);
+  const response = await fetch("/api/upload-image", {
+    method: "POST",
+    headers,
+    body: JSON.stringify({
+      dataUrl,
+      contentType: blob.type || "image/jpeg",
+      sessionId,
+    }),
+  });
+
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok || typeof data?.publicUrl !== "string" || !data.publicUrl) {
+    throw new Error(data?.error || "Image upload failed");
+  }
+
+  return data.publicUrl;
 }
 
 function isUserEmailVerified(user: any): boolean {
@@ -363,6 +388,32 @@ interface Message {
     session_limit?: number;
     daily_limit?: number;
   };
+}
+
+interface ReverseImageDebugInfo {
+  triggered: boolean;
+  imageUrl: string | null;
+  statusEvents: string[];
+  bestGuess: string | null;
+  summary: string | null;
+  keywords: string[];
+  matches: string[];
+}
+
+interface SearchDecisionDebugInfo {
+  keywordJa: string | null;
+  page: number | null;
+  nextSearchPromptZh: string | null;
+  stage: string | null;
+}
+
+interface ChatRequestDebugInfo {
+  sentAt: string;
+  sessionId: string;
+  language: string;
+  requestMessages: Message[];
+  reverseImage: ReverseImageDebugInfo;
+  searchDecision: SearchDecisionDebugInfo;
 }
 
 const formatLimit = (n?: number): string => {
@@ -1895,6 +1946,298 @@ const MessageSkeletonList = ({ count = 6 }: { count?: number }) => {
   );
 };
 
+const DebugContextFloatingPanel = ({
+  open,
+  onToggle,
+  debugText,
+  debugData,
+  onCopy,
+}: {
+  open: boolean;
+  onToggle: () => void;
+  debugText: string;
+  debugData: any;
+  onCopy: () => void;
+}) => {
+  const [mode, setMode] = useState<'structured' | 'raw'>('structured');
+
+  const renderValue = (value: any): string => {
+    if (value == null) return "null";
+    if (typeof value === "string") return value || '""';
+    if (typeof value === "number" || typeof value === "boolean") return String(value);
+    return JSON.stringify(value);
+  };
+
+  return (
+    <>
+      <button
+        onClick={onToggle}
+        className="fixed right-4 bottom-24 z-[70] bh-surface-strong border border-white/10 rounded-2xl shadow-2xl px-4 py-3 text-sm font-bold text-zinc-200 hover:text-white hover:bg-white/10"
+        title="Debug Context"
+        aria-label="Debug Context"
+      >
+        <span className="flex items-center gap-2">
+          <Terminal size={16} />
+          {open ? "关闭调试" : "Debug"}
+        </span>
+      </button>
+
+      {open && (
+        <div className="fixed right-4 bottom-40 z-[70] w-[min(720px,calc(100vw-2rem))] h-[min(70vh,720px)] bh-surface-strong border border-white/10 rounded-3xl shadow-2xl overflow-hidden backdrop-blur-xl">
+          <div className="flex items-center justify-between px-4 py-3 border-b border-white/5">
+            <div>
+              <div className="text-white font-bold">当前对话上下文日志</div>
+              <div className="text-[11px] text-zinc-400 mt-1">仅管理员可见，内容来自当前前端会话状态</div>
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="flex items-center rounded-xl border border-white/10 overflow-hidden">
+                <button
+                  onClick={() => setMode('structured')}
+                  className={`px-3 py-2 text-xs font-medium ${mode === 'structured' ? 'bg-white/10 text-white' : 'text-zinc-400 hover:text-white hover:bg-white/5'}`}
+                >
+                  结构化
+                </button>
+                <button
+                  onClick={() => setMode('raw')}
+                  className={`px-3 py-2 text-xs font-medium border-l border-white/10 ${mode === 'raw' ? 'bg-white/10 text-white' : 'text-zinc-400 hover:text-white hover:bg-white/5'}`}
+                >
+                  原始 JSON
+                </button>
+              </div>
+              <button
+                onClick={onCopy}
+                className="bh-icon-btn p-2 text-zinc-300 hover:text-white"
+                aria-label="Copy Debug Context"
+                title="Copy Debug Context"
+              >
+                <Copy size={16} />
+              </button>
+              <button
+                onClick={onToggle}
+                className="bh-icon-btn p-2 text-zinc-300 hover:text-white"
+                aria-label="Close Debug Context"
+                title="Close Debug Context"
+              >
+                <X size={16} />
+              </button>
+            </div>
+          </div>
+
+          <div className="h-[calc(100%-61px)] overflow-auto p-4">
+            {mode === 'raw' ? (
+              <pre className="text-xs leading-6 text-zinc-200 whitespace-pre-wrap break-words font-mono">
+                {debugText}
+              </pre>
+            ) : (
+              <div className="space-y-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+                    <div className="text-xs font-bold text-white mb-3">会话</div>
+                    <div className="space-y-2 text-xs">
+                      <div><span className="text-zinc-500">current_session_id:</span> <span className="text-zinc-200 font-mono break-all">{renderValue(debugData?.session?.current_session_id)}</span></div>
+                      <div><span className="text-zinc-500">sessions_count:</span> <span className="text-zinc-200">{renderValue(debugData?.session?.sessions_count)}</span></div>
+                      <div><span className="text-zinc-500">messages_count:</span> <span className="text-zinc-200">{renderValue(debugData?.session?.messages_count)}</span></div>
+                    </div>
+                  </div>
+
+                  <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+                    <div className="text-xs font-bold text-white mb-3">身份</div>
+                    <div className="space-y-2 text-xs">
+                      <div><span className="text-zinc-500">user_id:</span> <span className="text-zinc-200 font-mono break-all">{renderValue(debugData?.actor?.user_id)}</span></div>
+                      <div><span className="text-zinc-500">email:</span> <span className="text-zinc-200 break-all">{renderValue(debugData?.actor?.email)}</span></div>
+                      <div><span className="text-zinc-500">visitor_id:</span> <span className="text-zinc-200 font-mono break-all">{renderValue(debugData?.actor?.visitor_id)}</span></div>
+                      <div><span className="text-zinc-500">email_verified:</span> <span className="text-zinc-200">{renderValue(debugData?.actor?.email_verified)}</span></div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+                  <div className="text-xs font-bold text-white mb-3">界面状态</div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-2 text-xs">
+                    {Object.entries(debugData?.ui || {}).map(([key, value]) => (
+                      <div key={key}>
+                        <span className="text-zinc-500">{key}:</span>{" "}
+                        <span className="text-zinc-200">{renderValue(value)}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+                  <div className="text-xs font-bold text-white mb-3">输入区</div>
+                  <div className="space-y-2 text-xs">
+                    <div>
+                      <div className="text-zinc-500 mb-1">input</div>
+                      <div className="rounded-xl bg-black/20 border border-white/5 p-3 text-zinc-200 whitespace-pre-wrap break-words">
+                        {renderValue(debugData?.composer?.input)}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-zinc-500 mb-1">pending_image</div>
+                      <div className="rounded-xl bg-black/20 border border-white/5 p-3 text-zinc-200 break-all font-mono">
+                        {renderValue(debugData?.composer?.pending_image)}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+                  <div className="text-xs font-bold text-white mb-3">最近一次聊天请求</div>
+                  {debugData?.last_chat_request_debug ? (
+                    <div className="space-y-3 text-xs">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-2">
+                        <div><span className="text-zinc-500">sentAt:</span> <span className="text-zinc-200">{renderValue(debugData.last_chat_request_debug.sentAt)}</span></div>
+                        <div><span className="text-zinc-500">sessionId:</span> <span className="text-zinc-200 font-mono break-all">{renderValue(debugData.last_chat_request_debug.sessionId)}</span></div>
+                        <div><span className="text-zinc-500">language:</span> <span className="text-zinc-200">{renderValue(debugData.last_chat_request_debug.language)}</span></div>
+                        <div><span className="text-zinc-500">requestMessages:</span> <span className="text-zinc-200">{renderValue(debugData.last_chat_request_debug.requestMessages?.length)}</span></div>
+                      </div>
+
+                      <div className="rounded-2xl border border-white/10 bg-black/20 p-3">
+                        <div className="text-zinc-100 font-medium mb-2">reverseImage</div>
+                        <div className="space-y-2">
+                          <div><span className="text-zinc-500">triggered:</span> <span className="text-zinc-200">{renderValue(debugData.last_chat_request_debug.reverseImage?.triggered)}</span></div>
+                          <div><span className="text-zinc-500">imageUrl:</span> <span className="text-zinc-200 font-mono break-all">{renderValue(debugData.last_chat_request_debug.reverseImage?.imageUrl)}</span></div>
+                          <div><span className="text-zinc-500">bestGuess:</span> <span className="text-zinc-200">{renderValue(debugData.last_chat_request_debug.reverseImage?.bestGuess)}</span></div>
+                          <div>
+                            <div className="text-zinc-500 mb-1">summary</div>
+                            <div className="rounded-xl bg-white/[0.03] border border-white/5 p-3 text-zinc-200 whitespace-pre-wrap break-words">
+                              {renderValue(debugData.last_chat_request_debug.reverseImage?.summary)}
+                            </div>
+                          </div>
+                          <div>
+                            <div className="text-zinc-500 mb-1">keywords</div>
+                            <div className="rounded-xl bg-white/[0.03] border border-white/5 p-3 text-zinc-200 whitespace-pre-wrap break-words">
+                              {Array.isArray(debugData.last_chat_request_debug.reverseImage?.keywords) && debugData.last_chat_request_debug.reverseImage.keywords.length > 0
+                                ? debugData.last_chat_request_debug.reverseImage.keywords.join("\n")
+                                : <span className="text-zinc-500">(empty)</span>}
+                            </div>
+                          </div>
+                          <div>
+                            <div className="text-zinc-500 mb-1">matches</div>
+                            <div className="rounded-xl bg-white/[0.03] border border-white/5 p-3 text-zinc-200 whitespace-pre-wrap break-words">
+                              {Array.isArray(debugData.last_chat_request_debug.reverseImage?.matches) && debugData.last_chat_request_debug.reverseImage.matches.length > 0
+                                ? debugData.last_chat_request_debug.reverseImage.matches.join("\n\n")
+                                : <span className="text-zinc-500">(empty)</span>}
+                            </div>
+                          </div>
+                          <div>
+                            <div className="text-zinc-500 mb-1">statusEvents</div>
+                            <div className="rounded-xl bg-white/[0.03] border border-white/5 p-3 text-zinc-200 whitespace-pre-wrap break-words">
+                              {Array.isArray(debugData.last_chat_request_debug.reverseImage?.statusEvents) && debugData.last_chat_request_debug.reverseImage.statusEvents.length > 0
+                                ? debugData.last_chat_request_debug.reverseImage.statusEvents.join("\n")
+                                : <span className="text-zinc-500">(empty)</span>}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="rounded-2xl border border-white/10 bg-black/20 p-3">
+                        <div className="text-zinc-100 font-medium mb-2">searchDecision</div>
+                        <div className="space-y-2">
+                          <div><span className="text-zinc-500">keywordJa:</span> <span className="text-zinc-200">{renderValue(debugData.last_chat_request_debug.searchDecision?.keywordJa)}</span></div>
+                          <div><span className="text-zinc-500">page:</span> <span className="text-zinc-200">{renderValue(debugData.last_chat_request_debug.searchDecision?.page)}</span></div>
+                          <div><span className="text-zinc-500">stage:</span> <span className="text-zinc-200">{renderValue(debugData.last_chat_request_debug.searchDecision?.stage)}</span></div>
+                          <div>
+                            <div className="text-zinc-500 mb-1">nextSearchPromptZh</div>
+                            <div className="rounded-xl bg-white/[0.03] border border-white/5 p-3 text-zinc-200 whitespace-pre-wrap break-words">
+                              {renderValue(debugData.last_chat_request_debug.searchDecision?.nextSearchPromptZh)}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="text-xs text-zinc-500">还没有聊天请求记录</div>
+                  )}
+                </div>
+
+                <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+                  <div className="text-xs font-bold text-white mb-3">消息列表</div>
+                  <div className="space-y-3">
+                    {Array.isArray(debugData?.messages) && debugData.messages.length > 0 ? debugData.messages.map((message: any) => (
+                      <div key={message.id} className="rounded-2xl border border-white/10 bg-black/20 p-3">
+                        <div className="flex flex-wrap items-center gap-2 mb-2 text-[11px]">
+                          <span className={`px-2 py-1 rounded-lg font-bold ${message.role === 'user' ? 'bg-white/10 text-zinc-100' : 'bg-[#fc4d50]/15 text-[#ffb8c8]'}`}>
+                            {message.role}
+                          </span>
+                          <span className="text-zinc-500">#{message.index}</span>
+                          <span className="text-zinc-500 font-mono break-all">{message.id}</span>
+                          {message.isStreaming ? <span className="text-emerald-300">streaming</span> : null}
+                          {message.status ? <span className="text-sky-300">status active</span> : null}
+                        </div>
+
+                        <div className="space-y-2 text-xs">
+                          <div>
+                            <div className="text-zinc-500 mb-1">text</div>
+                            <div className="rounded-xl bg-white/[0.03] border border-white/5 p-3 text-zinc-200 whitespace-pre-wrap break-words max-h-52 overflow-auto">
+                              {message.text || <span className="text-zinc-500">(empty)</span>}
+                            </div>
+                          </div>
+
+                          {message.image ? (
+                            <div>
+                              <div className="text-zinc-500 mb-1">image</div>
+                              <div className="rounded-xl bg-white/[0.03] border border-white/5 p-3 text-zinc-200 break-all font-mono">
+                                {message.image}
+                              </div>
+                            </div>
+                          ) : null}
+
+                          {message.status ? (
+                            <div>
+                              <span className="text-zinc-500">status:</span>{" "}
+                              <span className="text-zinc-200">{message.status}</span>
+                            </div>
+                          ) : null}
+
+                          {message.turnMeta ? (
+                            <div>
+                              <div className="text-zinc-500 mb-1">turnMeta</div>
+                              <div className="rounded-xl bg-white/[0.03] border border-white/5 p-3 text-zinc-200 font-mono whitespace-pre-wrap break-words">
+                                {JSON.stringify(message.turnMeta, null, 2)}
+                              </div>
+                            </div>
+                          ) : null}
+
+                          {Array.isArray(message.items) && message.items.length > 0 ? (
+                            <div>
+                              <div className="text-zinc-500 mb-2">items ({message.items.length})</div>
+                              <div className="space-y-2">
+                                {message.items.map((item: any) => (
+                                  <div key={item.id} className="rounded-xl bg-white/[0.03] border border-white/5 p-3">
+                                    <div className="text-zinc-100 font-medium">{item.title || item.id}</div>
+                                    <div className="text-zinc-400 mt-1">{item.shopName} · {item.price}</div>
+                                    {item.description ? <div className="text-zinc-300 mt-2 whitespace-pre-wrap break-words">{item.description}</div> : null}
+                                    {Array.isArray(item.tags) && item.tags.length > 0 ? (
+                                      <div className="mt-2 flex flex-wrap gap-2">
+                                        {item.tags.map((tag: string, idx: number) => (
+                                          <span key={`${item.id}-${tag}-${idx}`} className="text-[10px] px-2 py-1 rounded-full bg-white/5 text-zinc-300 border border-white/5">
+                                            {tag}
+                                          </span>
+                                        ))}
+                                      </div>
+                                    ) : null}
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          ) : null}
+                        </div>
+                      </div>
+                    )) : (
+                      <div className="text-xs text-zinc-500">当前没有消息</div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </>
+  );
+};
+
 const App = () => {
   const { t, i18n } = useTranslation();
   const [messages, setMessages] = useState<Message[]>([]);
@@ -1936,6 +2279,8 @@ const App = () => {
   const [isAuthOpen, setIsAuthOpen] = useState(false);
   const [isAdmin, setIsAdmin] = useState(false);
   const [isAdminPanelOpen, setIsAdminPanelOpen] = useState(false);
+  const [isDebugContextOpen, setIsDebugContextOpen] = useState(false);
+  const [lastChatRequestDebug, setLastChatRequestDebug] = useState<ChatRequestDebugInfo | null>(null);
 
   // Latest turn meta (for sidebar display)
   const [dailyTurnCount, setDailyTurnCount] = useState<number | undefined>(undefined);
@@ -2019,6 +2364,104 @@ const App = () => {
   // 用于“停止生成”：Abort 当前 /api/chat 的 fetch 流式请求
   const chatAbortRef = useRef<AbortController | null>(null);
   const stopRequestedRef = useRef(false);
+
+  const debugContextText = React.useMemo(() => {
+    const payload = {
+      generated_at: new Date().toISOString(),
+      session: {
+        current_session_id: currentSessionId,
+        sessions_count: sessions.length,
+        messages_count: messages.length,
+      },
+      actor: {
+        is_admin: isAdmin,
+        auth_loading: authLoading,
+        user_id: user?.id ?? null,
+        email: user?.email ?? null,
+        email_verified: emailVerified,
+        visitor_id: visitorId,
+      },
+      ui: {
+        language: i18n.language,
+        loading,
+        can_stop: canStop,
+        processing_tool: processingTool,
+        image_processing: imageProcessing,
+        session_messages_loading: sessionMessagesLoading,
+        sessions_loading: sessionsLoading,
+        sidebar_collapsed: sidebarCollapsed,
+        sidebar_open: isSidebarOpen,
+        admin_panel_open: isAdminPanelOpen,
+      },
+      composer: {
+        input,
+        pending_image: image,
+      },
+      last_chat_request_debug: lastChatRequestDebug,
+      latest_turn_meta: {
+        daily_turn_count: dailyTurnCount,
+        daily_turn_limit: dailyTurnLimit,
+      },
+      messages: messages.map((m, idx) => ({
+        index: idx,
+        id: m.id,
+        role: m.role,
+        text: m.text,
+        image: m.image ?? null,
+        items: m.items ?? null,
+        timestamp: m.timestamp,
+        toolCall: m.toolCall ?? null,
+        status: m.status ?? null,
+        isStreaming: !!m.isStreaming,
+        isJsonStreaming: !!m.isJsonStreaming,
+        turnMeta: m.turnMeta ?? null,
+      })),
+    };
+
+    return JSON.stringify(payload, null, 2);
+  }, [
+    authLoading,
+    canStop,
+    currentSessionId,
+    dailyTurnCount,
+    dailyTurnLimit,
+    emailVerified,
+    i18n.language,
+    image,
+    imageProcessing,
+    input,
+    isAdmin,
+    isAdminPanelOpen,
+    isSidebarOpen,
+    loading,
+    lastChatRequestDebug,
+    messages,
+    processingTool,
+    sessionMessagesLoading,
+    sessions,
+    sessionsLoading,
+    sidebarCollapsed,
+    user?.email,
+    user?.id,
+    visitorId,
+  ]);
+
+  const debugContextData = React.useMemo(() => {
+    try {
+      return JSON.parse(debugContextText);
+    } catch {
+      return null;
+    }
+  }, [debugContextText]);
+
+  const copyDebugContext = async () => {
+    try {
+      await navigator.clipboard.writeText(debugContextText);
+      pushToast({ type: 'success', title: 'Debug', message: '上下文日志已复制' });
+    } catch (e: any) {
+      pushToast({ type: 'error', title: 'Debug', message: e?.message || '复制失败' });
+    }
+  };
 
   const parseTurnMetaFromHeaders = (headers: Headers): Message['turnMeta'] => {
     const toNum = (v: string | null): number | undefined => {
@@ -2353,29 +2796,89 @@ const App = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: reducedMotion ? "auto" : "smooth" });
   }, [messages, loading, processingTool, reducedMotion]);
 
-  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    // reset input value so selecting the same file again triggers onChange
-    e.target.value = "";
-
+  const processImageFileUpload = async (file: File) => {
     if (!file) return;
+    const sessionId = currentSessionId || uuidv4();
+    if (!currentSessionId) setCurrentSessionId(sessionId);
 
     setImageProcessing(true);
     try {
-      const compressedDataUrl = await compressImageFileToJpegDataUrl(file, 0.8);
-      setImage(compressedDataUrl);
+      const compressedBlob = await compressImageFileToJpegBlob(file, 0.8);
+      if (compressedBlob.size > CHAT_IMAGE_MAX_BYTES) {
+        throw new Error("Compressed image is still too large");
+      }
+
+      const token = await getSupabaseAccessToken();
+      const publicUrl = await uploadChatImage(compressedBlob, token, visitorId, sessionId);
+      setImage(publicUrl);
     } catch (err) {
-      console.warn("[Image] Compress failed, fallback to original:", err);
-      // Fallback: use original file as base64
+      console.warn("[Image] Upload failed:", err);
       try {
-        const original = await blobToDataUrl(file);
-        setImage(original);
-      } catch {
+        const token = await getSupabaseAccessToken();
+        const publicUrl = await uploadChatImage(file, token, visitorId, sessionId);
+        setImage(publicUrl);
+      } catch (uploadErr) {
+        console.warn("[Image] Original upload failed:", uploadErr);
         pushToast({ type: 'error', title: t("ImageReadFailed"), message: t("ImageReadFailedDesc") });
       }
     } finally {
       setImageProcessing(false);
     }
+  };
+
+  const handleDeleteSessionWithStorageCleanup = async (id: string) => {
+    if (!user || !isUserEmailVerified(user)) return;
+    const ok = await confirmAsync({
+      title: t("DeleteChat"),
+      message: t("DeleteChatConfirm"),
+      confirmText: t("Delete"),
+      cancelText: t("Cancel"),
+      destructive: true,
+    });
+    if (!ok) return;
+
+    try {
+      const token = await getSupabaseAccessToken();
+      if (!token) throw new Error('Not authenticated');
+
+      const res = await fetch(`/api/delete-chat?id=${encodeURIComponent(id)}`, {
+        method: 'DELETE',
+        headers: {
+          authorization: `Bearer ${token}`,
+        },
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error((data as any)?.error || 'Delete failed');
+
+      setSessions(prev => prev.filter(s => s.id !== id));
+
+      if (currentSessionId === id) {
+        handleNewChat();
+      }
+    } catch (e) {
+      console.error("Delete error:", e);
+      pushToast({ type: 'error', title: t("DeleteFailed"), message: t("DeleteChatFailedGeneral") });
+    }
+  };
+
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    // reset input value so selecting the same file again triggers onChange
+    e.target.value = "";
+    if (!file) return;
+    await processImageFileUpload(file);
+  };
+
+  const handleInputPaste = async (e: React.ClipboardEvent<HTMLInputElement>) => {
+    if (!canUseApp || imageProcessing) return;
+
+    const items = Array.from(e.clipboardData?.items || []);
+    const imageItem = items.find((item) => item.type.startsWith("image/"));
+    const file = imageItem?.getAsFile();
+    if (!file) return;
+
+    e.preventDefault();
+    await processImageFileUpload(file);
   };
 
   const extractItems = (text: string): AssetResult[] | undefined => {
@@ -2439,6 +2942,27 @@ const App = () => {
     
     const updatedMessages = [...messages, userMsg];
     setMessages(updatedMessages);
+    setLastChatRequestDebug({
+      sentAt: new Date().toISOString(),
+      sessionId,
+      language: i18n.language,
+      requestMessages: updatedMessages,
+      reverseImage: {
+        triggered: !!(userImage && /^https?:\/\//i.test(userImage)),
+        imageUrl: userImage || null,
+        statusEvents: [],
+        bestGuess: null,
+        summary: null,
+        keywords: [],
+        matches: [],
+      },
+      searchDecision: {
+        keywordJa: null,
+        page: null,
+        nextSearchPromptZh: null,
+        stage: null,
+      },
+    });
 
     // If user sends a message while reading history, jump to bottom and resume auto-scroll
     // so they can follow the conversation.
@@ -2545,6 +3069,76 @@ const App = () => {
       // - 或者 __STATUS__ 可能被拆分到两个 chunk
       // 因此这里使用 buffer 逐步解析，避免丢内容。
       const STATUS_MARKER = "__STATUS__:";
+      const REVERSE_DEBUG_MARKER = "__DEBUG_REVERSE_IMAGE__:";
+      const SEARCH_DEBUG_MARKER = "__DEBUG_SEARCH_DECISION__:";
+      const stripControlMarkers = (text: string): string =>
+        String(text || "")
+          .replace(/__STATUS__:[^\n]*\n?/g, "")
+          .replace(/__DEBUG_REVERSE_IMAGE__:[^\n]*\n?/g, "")
+          .replace(/__DEBUG_SEARCH_DECISION__:[^\n]*\n?/g, "");
+      const applyReverseDebugPayload = (parsed: any) => {
+        setLastChatRequestDebug((prev) => {
+          if (!prev) return prev;
+          const matches = Array.isArray(parsed?.matches)
+            ? parsed.matches
+                .map((item: any) => {
+                  const title = typeof item?.title === 'string' ? item.title.trim() : '';
+                  const source = typeof item?.source === 'string' ? item.source.trim() : '';
+                  const snippet = typeof item?.snippet === 'string' ? item.snippet.trim() : '';
+                  return [title, source ? `@ ${source}` : '', snippet].filter(Boolean).join(' ');
+                })
+                .filter(Boolean)
+            : prev.reverseImage.matches;
+
+          return {
+            ...prev,
+            reverseImage: {
+              ...prev.reverseImage,
+              bestGuess: typeof parsed?.bestGuess === 'string' ? parsed.bestGuess : prev.reverseImage.bestGuess,
+              summary: typeof parsed?.summary === 'string' ? parsed.summary : prev.reverseImage.summary,
+              keywords: Array.isArray(parsed?.keywords) ? parsed.keywords.filter((x: any) => typeof x === 'string') : prev.reverseImage.keywords,
+              matches,
+            },
+          };
+        });
+      };
+      const applySearchDecisionPayload = (parsed: any) => {
+        setLastChatRequestDebug((prev) => {
+          if (!prev) return prev;
+          return {
+            ...prev,
+            searchDecision: {
+              keywordJa: typeof parsed?.keywordJa === 'string' ? parsed.keywordJa : prev.searchDecision.keywordJa,
+              page: typeof parsed?.page === 'number' ? parsed.page : prev.searchDecision.page,
+              nextSearchPromptZh:
+                typeof parsed?.nextSearchPromptZh === 'string'
+                  ? parsed.nextSearchPromptZh
+                  : prev.searchDecision.nextSearchPromptZh,
+              stage: typeof parsed?.stage === 'string' ? parsed.stage : prev.searchDecision.stage,
+            },
+          };
+        });
+      };
+      const consumeEmbeddedDebugLines = (text: string): string => {
+        let output = String(text || "");
+        output = output.replace(/__DEBUG_REVERSE_IMAGE__:([^\n]*)\n?/g, (_match, raw) => {
+          try {
+            applyReverseDebugPayload(JSON.parse(raw));
+          } catch (e) {
+            console.warn('[Debug] reverse image parse failed:', e);
+          }
+          return "";
+        });
+        output = output.replace(/__DEBUG_SEARCH_DECISION__:([^\n]*)\n?/g, (_match, raw) => {
+          try {
+            applySearchDecisionPayload(JSON.parse(raw));
+          } catch (e) {
+            console.warn('[Debug] search decision parse failed:', e);
+          }
+          return "";
+        });
+        return output;
+      };
       // streamBuffer / accumulatedText 已在外部声明，便于 AbortError 时也能返回部分内容
 
       let currentStatus = "";
@@ -2569,13 +3163,47 @@ const App = () => {
 
           // 标记之前的都是真实正文
           if (idx > 0) {
-            accumulatedText += streamBuffer.slice(0, idx);
+            accumulatedText += consumeEmbeddedDebugLines(streamBuffer.slice(0, idx));
           }
 
           // 提取状态内容
           currentStatus = streamBuffer.slice(idx + STATUS_MARKER.length, nlIdx).trim();
           // 消费掉直到换行符的所有内容
           streamBuffer = streamBuffer.slice(nlIdx + 1);
+
+          setLastChatRequestDebug((prev) => {
+            if (!prev) return prev;
+            const shouldTrack =
+              currentStatus.includes("图片反向搜索") ||
+              currentStatus.includes("图片线索已提取");
+            if (!shouldTrack) return prev;
+
+            const nextEvents = prev.reverseImage.statusEvents.includes(currentStatus)
+              ? prev.reverseImage.statusEvents
+              : [...prev.reverseImage.statusEvents, currentStatus];
+
+            let bestGuess = prev.reverseImage.bestGuess;
+            let summary = prev.reverseImage.summary;
+            const keywords = prev.reverseImage.keywords;
+            const matches = prev.reverseImage.matches;
+            const bestGuessPrefix = "图片线索已提取：";
+            if (currentStatus.startsWith(bestGuessPrefix)) {
+              bestGuess = currentStatus.slice(bestGuessPrefix.length).trim() || bestGuess;
+              summary = currentStatus.trim();
+            }
+
+            return {
+              ...prev,
+              reverseImage: {
+                ...prev.reverseImage,
+                statusEvents: nextEvents,
+                bestGuess,
+                summary,
+                keywords,
+                matches,
+              },
+            };
+          });
 
           setMessages((prev) =>
             prev.map((m) =>
@@ -2586,11 +3214,104 @@ const App = () => {
 
         // 2. 检查 buffer 末尾，确定安全刷入正文的边界
         // 不安全的位置定义：出现了完整标记（但没换行）或者标记的开始前缀
+        while (true) {
+          const idx = streamBuffer.indexOf(REVERSE_DEBUG_MARKER);
+          if (idx === -1) break;
+
+          const nlIdx = streamBuffer.indexOf("\n", idx);
+          if (nlIdx === -1) break;
+
+          if (idx > 0) {
+            accumulatedText += consumeEmbeddedDebugLines(streamBuffer.slice(0, idx));
+          }
+
+          const rawDebug = streamBuffer.slice(idx + REVERSE_DEBUG_MARKER.length, nlIdx).trim();
+          streamBuffer = streamBuffer.slice(nlIdx + 1);
+
+          try {
+            const parsed = JSON.parse(rawDebug);
+            setLastChatRequestDebug((prev) => {
+              if (!prev) return prev;
+              const matches = Array.isArray(parsed?.matches)
+                ? parsed.matches
+                    .map((item: any) => {
+                      const title = typeof item?.title === 'string' ? item.title.trim() : '';
+                      const source = typeof item?.source === 'string' ? item.source.trim() : '';
+                      const snippet = typeof item?.snippet === 'string' ? item.snippet.trim() : '';
+                      return [title, source ? `@ ${source}` : '', snippet].filter(Boolean).join(' ');
+                    })
+                    .filter(Boolean)
+                : prev.reverseImage.matches;
+
+              return {
+                ...prev,
+                reverseImage: {
+                  ...prev.reverseImage,
+                  bestGuess: typeof parsed?.bestGuess === 'string' ? parsed.bestGuess : prev.reverseImage.bestGuess,
+                  summary: typeof parsed?.summary === 'string' ? parsed.summary : prev.reverseImage.summary,
+                  keywords: Array.isArray(parsed?.keywords) ? parsed.keywords.filter((x: any) => typeof x === 'string') : prev.reverseImage.keywords,
+                  matches,
+                },
+              };
+            });
+          } catch (e) {
+            console.warn('[Debug] reverse image parse failed:', e);
+          }
+        }
+
+        while (true) {
+          const idx = streamBuffer.indexOf(SEARCH_DEBUG_MARKER);
+          if (idx === -1) break;
+
+          const nlIdx = streamBuffer.indexOf("\n", idx);
+          if (nlIdx === -1) break;
+
+          if (idx > 0) {
+            accumulatedText += consumeEmbeddedDebugLines(streamBuffer.slice(0, idx));
+          }
+
+          const rawDebug = streamBuffer.slice(idx + SEARCH_DEBUG_MARKER.length, nlIdx).trim();
+          streamBuffer = streamBuffer.slice(nlIdx + 1);
+
+          try {
+            const parsed = JSON.parse(rawDebug);
+            setLastChatRequestDebug((prev) => {
+              if (!prev) return prev;
+              return {
+                ...prev,
+                searchDecision: {
+                  keywordJa: typeof parsed?.keywordJa === 'string' ? parsed.keywordJa : prev.searchDecision.keywordJa,
+                  page: typeof parsed?.page === 'number' ? parsed.page : prev.searchDecision.page,
+                  nextSearchPromptZh:
+                    typeof parsed?.nextSearchPromptZh === 'string'
+                      ? parsed.nextSearchPromptZh
+                      : prev.searchDecision.nextSearchPromptZh,
+                  stage: typeof parsed?.stage === 'string' ? parsed.stage : prev.searchDecision.stage,
+                },
+              };
+            });
+          } catch (e) {
+            console.warn('[Debug] search decision parse failed:', e);
+          }
+        }
+
         let firstUnsafeIdx = streamBuffer.indexOf(STATUS_MARKER);
+        const reverseDebugIdx = streamBuffer.indexOf(REVERSE_DEBUG_MARKER);
+        const searchDebugIdx = streamBuffer.indexOf(SEARCH_DEBUG_MARKER);
+        if (firstUnsafeIdx === -1 || (reverseDebugIdx !== -1 && reverseDebugIdx < firstUnsafeIdx)) {
+          firstUnsafeIdx = reverseDebugIdx;
+        }
+        if (firstUnsafeIdx === -1 || (searchDebugIdx !== -1 && searchDebugIdx < firstUnsafeIdx)) {
+          firstUnsafeIdx = searchDebugIdx;
+        }
         if (firstUnsafeIdx === -1) {
           // 没发现完整标记，再看末尾是否匹配标记前缀（防止标记被从中间切断）
           for (let i = 0; i < streamBuffer.length; i++) {
-            if (STATUS_MARKER.startsWith(streamBuffer.slice(i))) {
+            if (
+              STATUS_MARKER.startsWith(streamBuffer.slice(i)) ||
+              REVERSE_DEBUG_MARKER.startsWith(streamBuffer.slice(i)) ||
+              SEARCH_DEBUG_MARKER.startsWith(streamBuffer.slice(i))
+            ) {
               firstUnsafeIdx = i;
               break;
             }
@@ -2599,17 +3320,17 @@ const App = () => {
 
         if (firstUnsafeIdx === -1) {
           // 全部安全
-          accumulatedText += streamBuffer;
+          accumulatedText += consumeEmbeddedDebugLines(streamBuffer);
           streamBuffer = "";
         } else if (firstUnsafeIdx > 0) {
           // 刷入不安全位置之前的部分
-          accumulatedText += streamBuffer.slice(0, firstUnsafeIdx);
+          accumulatedText += consumeEmbeddedDebugLines(streamBuffer.slice(0, firstUnsafeIdx));
           streamBuffer = streamBuffer.slice(firstUnsafeIdx);
         }
 
         // 3. 更新 UI (排除开头的 Padding 空格)
-        const displayText = accumulatedText.trimStart();
-        const maybeJsonStreaming = (displayText + streamBuffer).toLowerCase().includes("```json");
+        const displayText = stripControlMarkers(accumulatedText).trimStart();
+        const maybeJsonStreaming = stripControlMarkers(displayText + streamBuffer).toLowerCase().includes("```json");
         setMessages((prev) =>
           prev.map((m) =>
             m.id === modelMsgId ? { ...m, text: displayText, isJsonStreaming: maybeJsonStreaming } : m
@@ -2620,21 +3341,31 @@ const App = () => {
       // 4. 流结束清理：如果 buffer 里还剩下东西，必须排除掉任何形式的标记残留
       if (streamBuffer) {
         const markerIdx = streamBuffer.indexOf(STATUS_MARKER);
-        if (markerIdx === -1) {
+        const debugIdx = streamBuffer.indexOf(REVERSE_DEBUG_MARKER);
+        const searchDebugIdx = streamBuffer.indexOf(SEARCH_DEBUG_MARKER);
+        const firstMarkerIdx =
+          [markerIdx, debugIdx, searchDebugIdx]
+            .filter((idx) => idx !== -1)
+            .sort((a, b) => a - b)[0] ?? -1;
+        if (firstMarkerIdx === -1) {
           // 没有完整标记，但可能只有标记前缀（如 "__ST"），也需要排除
           let safeToFlush = true;
           for (let i = 0; i < streamBuffer.length; i++) {
-            if (STATUS_MARKER.startsWith(streamBuffer.slice(i))) {
+            if (
+              STATUS_MARKER.startsWith(streamBuffer.slice(i)) ||
+              REVERSE_DEBUG_MARKER.startsWith(streamBuffer.slice(i)) ||
+              SEARCH_DEBUG_MARKER.startsWith(streamBuffer.slice(i))
+            ) {
               safeToFlush = false;
               // 如果前缀之前有内容，理论上可以刷入，但流结束时的前缀通常意味着异常，直接保守处理
-              if (i > 0) accumulatedText += streamBuffer.slice(0, i);
+              if (i > 0) accumulatedText += consumeEmbeddedDebugLines(streamBuffer.slice(0, i));
               break;
             }
           }
-          if (safeToFlush) accumulatedText += streamBuffer;
+          if (safeToFlush) accumulatedText += consumeEmbeddedDebugLines(streamBuffer);
         } else {
           // 包含完整标记，只刷入标记前的正文
-          if (markerIdx > 0) accumulatedText += streamBuffer.slice(0, markerIdx);
+          if (firstMarkerIdx > 0) accumulatedText += consumeEmbeddedDebugLines(streamBuffer.slice(0, firstMarkerIdx));
         }
       }
       streamBuffer = "";
@@ -2642,11 +3373,12 @@ const App = () => {
       // Final cleanup of status
       setMessages(prev => prev.map(m => m.id === modelMsgId ? { ...m, status: undefined } : m));
 
-      const items = extractItems(accumulatedText);
-      let finalText = accumulatedText;
+      const cleanedAccumulatedText = stripControlMarkers(accumulatedText);
+      const items = extractItems(cleanedAccumulatedText);
+      let finalText = cleanedAccumulatedText;
       if (items) {
         const jsonBlockRegex = /```json\s*(\[[\s\S]*?\])\s*```/i;
-        finalText = accumulatedText.replace(jsonBlockRegex, "").trim();
+        finalText = cleanedAccumulatedText.replace(jsonBlockRegex, "").trim();
       }
 
       const finalModelMsg: Message = { 
@@ -2709,7 +3441,7 @@ const App = () => {
         onSelectSession={handleSelectSession}
         onNewChat={handleNewChat}
         onOpenAuth={() => setIsAuthOpen(true)}
-        onDeleteSession={handleDeleteSession}
+        onDeleteSession={handleDeleteSessionWithStorageCleanup}
         totalTurnCount={dailyTurnCount}
         totalTurnLimit={dailyTurnLimit}
         reducedMotion={reducedMotion}
@@ -2888,6 +3620,7 @@ const App = () => {
                   type="text"
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
+                  onPaste={handleInputPaste}
                   disabled={!canUseApp}
                   placeholder={canUseApp ? t("SearchPlaceholder") : (user ? t("VerifyEmail") : t("Loading"))}
                   className="w-full rounded-2xl px-5 py-4 pr-14 text-base focus:outline-none transition-all placeholder-zinc-500 bh-input"
@@ -2976,6 +3709,16 @@ const App = () => {
       <Analytics />
 
       <ToastViewport toasts={toasts} onDismiss={dismissToast} />
+
+      {isAdmin && (
+        <DebugContextFloatingPanel
+          open={isDebugContextOpen}
+          onToggle={() => setIsDebugContextOpen((v) => !v)}
+          debugText={debugContextText}
+          debugData={debugContextData}
+          onCopy={copyDebugContext}
+        />
+      )}
 
       <ConfirmModal
         open={confirmOpen}

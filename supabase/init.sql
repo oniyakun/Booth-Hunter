@@ -444,7 +444,34 @@ grant execute on function public.consume_guest_turn(text) to anon;
 grant execute on function public.consume_guest_turn(text) to authenticated;
 grant execute on function public.consume_guest_turn(text) to service_role;
 
--- ============ 5) RLS ============
+-- ============ 5) Storage bucket（chat-images） ============
+-- 说明：
+-- - 这里通过 SQL 幂等创建一个 public bucket，供聊天上传图片后生成公开 URL。
+-- - 上传/删除实际仍应走 Storage API（前端 SDK / 服务端 service_role），不要直接写 storage.objects。
+-- - 当前项目的图片上传由 /api/upload-image 使用 service_role 执行，因此这里不额外放开 storage.objects 的客户端写权限。
+
+insert into storage.buckets (
+  id,
+  name,
+  public,
+  file_size_limit,
+  allowed_mime_types
+)
+values (
+  'chat-images',
+  'chat-images',
+  true,
+  8388608,
+  array['image/jpeg', 'image/png', 'image/webp', 'image/gif']
+)
+on conflict (id) do update
+set
+  name = excluded.name,
+  public = excluded.public,
+  file_size_limit = excluded.file_size_limit,
+  allowed_mime_types = excluded.allowed_mime_types;
+
+-- ============ 6) RLS ============
 
 alter table public.profiles enable row level security;
 alter table public.chats enable row level security;
@@ -500,5 +527,5 @@ on public.chats
 for delete
 using (auth.uid() = user_id);
 
--- ============ 6) 管理员设置（手动） ============
+-- ============ 7) 管理员设置（手动） ============
 -- update public.profiles set is_admin = true where email = 'your_admin@email.com';

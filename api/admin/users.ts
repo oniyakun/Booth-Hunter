@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
+import { deleteSessionFolder, deleteStoragePaths, extractStoragePathsFromMessages } from '../_lib/storageCleanup';
 
 export const config = {
   runtime: 'edge',
@@ -67,6 +68,22 @@ export default async function handler(req: Request): Promise<Response> {
       const url = new URL(req.url);
       const targetId = url.searchParams.get('id');
       if (!targetId) return json(400, { error: 'Missing query param: id' });
+      const bucket = process.env.SUPABASE_IMAGE_BUCKET || 'chat-images';
+
+      const { data: chats, error: chatsListErr } = await admin
+        .from('chats')
+        .select('id, messages')
+        .eq('user_id', targetId);
+      if (chatsListErr) return json(500, { error: chatsListErr.message });
+
+      const messagePaths = extractStoragePathsFromMessages((chats || []).flatMap((chat: any) => chat?.messages || []), bucket);
+      await deleteStoragePaths(admin, bucket, messagePaths);
+
+      for (const chat of chats || []) {
+        if ((chat as any)?.id) {
+          await deleteSessionFolder(admin, bucket, `users/${targetId}/${(chat as any).id}`);
+        }
+      }
 
       const body = await req.json().catch(() => ({}));
       const patch: any = {};

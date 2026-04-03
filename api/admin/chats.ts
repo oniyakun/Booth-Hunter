@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
+import { deleteSessionFolder, deleteStoragePaths, extractStoragePathsFromMessages } from '../_lib/storageCleanup';
 
 export const config = {
   runtime: 'edge',
@@ -72,6 +73,19 @@ export default async function handler(req: Request): Promise<Response> {
     // DELETE /api/admin/chats?id=<uuid>
     if (req.method === 'DELETE') {
       if (!chatId) return json(400, { error: 'Missing query param: id' });
+      const bucket = process.env.SUPABASE_IMAGE_BUCKET || 'chat-images';
+      const { data: chat, error: chatFetchErr } = await admin
+        .from('chats')
+        .select('id, user_id, messages')
+        .eq('id', chatId)
+        .maybeSingle();
+      if (chatFetchErr) return json(500, { error: chatFetchErr.message });
+      if (!chat) return json(404, { error: 'Chat not found' });
+
+      const messagePaths = extractStoragePathsFromMessages((chat as any).messages, bucket);
+      await deleteStoragePaths(admin, bucket, messagePaths);
+      await deleteSessionFolder(admin, bucket, `users/${(chat as any).user_id}/${chatId}`);
+
       const { error } = await admin.from('chats').delete().eq('id', chatId);
       if (error) return json(500, { error: error.message });
       return json(200, { ok: true });
