@@ -68,6 +68,32 @@ type ReverseImageContext = {
   matches: ReverseImageMatch[];
 };
 
+type InputEvidence = {
+  freeText: string;
+  hasImage: boolean;
+  urls: string[];
+  boothItemUrls: string[];
+  boothShopUrls: string[];
+  boothSearchUrls: string[];
+  genericUrls: string[];
+};
+
+type PlannerDecision =
+  | { action: "chat_reply"; reply_zh: string }
+  | { action: "direct_booth_item"; url: string; goal: "explain_item" | "find_similar" }
+  | { action: "direct_booth_shop"; url: string; goal: "summarize_shop" | "find_items" }
+  | { action: "direct_booth_search"; url: string; keyword_ja?: string; page?: number; next_search_prompt_zh?: string }
+  | { action: "image_lookup"; reason_zh?: string }
+  | { action: "web_link_lookup"; url: string; goal: "summarize_page" | "find_item_from_page" }
+  | { action: "normal_search"; keyword_ja: string; next_search_prompt_zh: string; page: number };
+
+type WebPageContext = {
+  url: string;
+  title: string;
+  description: string;
+  siteName?: string;
+};
+
 type SearchDecisionDebugPayload = {
   keywordJa: string;
   page: number;
@@ -266,6 +292,210 @@ function extractLastUserImage(messages: ClientMessage[]): string | undefined {
   return undefined;
 }
 
+function extractUrlsFromText(text: string): string[] {
+  const rawMatches = String(text || "").match(/https?:\/\/[^\s<>"'）)\]]+/gi) || [];
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const raw of rawMatches) {
+    const cleaned = raw.replace(/[),.;!?]+$/g, "").trim();
+    if (!cleaned) continue;
+    if (seen.has(cleaned)) continue;
+    seen.add(cleaned);
+    out.push(cleaned);
+  }
+  return out;
+}
+
+function isBoothDomain(hostname: string): boolean {
+  const host = String(hostname || "").toLowerCase();
+  return host === "booth.pm" || host.endsWith(".booth.pm");
+}
+
+function isBoothItemUrl(urlStr: string): boolean {
+  try {
+    const url = new URL(urlStr);
+    return isBoothDomain(url.hostname) && /\/items\/\d+/i.test(url.pathname);
+  } catch {
+    return false;
+  }
+}
+
+function isBoothSearchUrl(urlStr: string): boolean {
+  try {
+    const url = new URL(urlStr);
+    return isBoothDomain(url.hostname) && /\/search(\/|$)/i.test(url.pathname);
+  } catch {
+    return false;
+  }
+}
+
+function isBoothShopUrl(urlStr: string): boolean {
+  try {
+    const url = new URL(urlStr);
+    if (!isBoothDomain(url.hostname)) return false;
+    if (isBoothItemUrl(urlStr) || isBoothSearchUrl(urlStr)) return false;
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function extractBoothItemId(urlStr: string): string | undefined {
+  const match = String(urlStr || "").match(/\/items\/(\d+)/i);
+  return match?.[1];
+}
+
+function cleanSearchSeed(text: string): string {
+  return String(text || "")
+    .replace(/\s*-\s*BOOTH.*$/i, "")
+    .replace(/\s*\|\s*BOOTH.*$/i, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function extractBoothSearchHintFromUrl(urlStr: string): { keywordJa?: string; page?: number } {
+  try {
+    const url = new URL(urlStr);
+    const parts = url.pathname.split("/").filter(Boolean);
+    const searchIdx = parts.findIndex((part) => part.toLowerCase() === "search");
+    const keywordPart = searchIdx >= 0 ? parts[searchIdx + 1] : "";
+    const keywordJa = keywordPart ? decodeURIComponent(keywordPart).trim() : undefined;
+    const pageValue = Number(url.searchParams.get("page") || "1");
+    return {
+      keywordJa: keywordJa || undefined,
+      page: Number.isFinite(pageValue) && pageValue > 0 ? Math.trunc(pageValue) : 1,
+    };
+  } catch {
+    return {};
+  }
+}
+
+function extractInputEvidence(messages: ClientMessage[]): InputEvidence {
+  const { text, hasImage } = extractUserInstruction(messages);
+  const urls = extractUrlsFromText(text);
+  const boothItemUrls = urls.filter(isBoothItemUrl);
+  const boothSearchUrls = urls.filter((url) => !boothItemUrls.includes(url) && isBoothSearchUrl(url));
+  const boothShopUrls = urls.filter((url) => !boothItemUrls.includes(url) && !boothSearchUrls.includes(url) && isBoothShopUrl(url));
+  const genericUrls = urls.filter((url) => !boothItemUrls.includes(url) && !boothSearchUrls.includes(url) && !boothShopUrls.includes(url));
+
+  return {
+    freeText: text,
+    hasImage,
+    urls,
+    boothItemUrls,
+    boothShopUrls,
+    boothSearchUrls,
+    genericUrls,
+  };
+}
+
+async function fetchHtml(url: string, signal?: AbortSignal): Promise<string | null> {
+  try {
+    const res = await fetch(url, {
+      signal,
+      headers: {
+        "User-Agent":
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Accept-Language": "ja-JP,ja;q=0.9,en-US;q=0.8,en;q=0.7",
+      },
+    });
+    if (!res.ok) return null;
+    return await res.text();
+  } catch {
+    return null;
+  }
+}
+
+function parseWebPageContext(html: string, url: string): WebPageContext | null {
+  if (!html) return null;
+  const $ = cheerio.load(html);
+  const title =
+    $('meta[property="og:title"]').attr("content")?.trim() ||
+    $("title").first().text().trim() ||
+    $("h1").first().text().trim() ||
+    "";
+  const description =
+    $('meta[property="og:description"]').attr("content")?.trim() ||
+    $('meta[name="description"]').attr("content")?.trim() ||
+    "";
+  const siteName =
+    $('meta[property="og:site_name"]').attr("content")?.trim() ||
+    undefined;
+  if (!title && !description) return null;
+  return {
+    url,
+    title: cleanSearchSeed(title),
+    description,
+    siteName,
+  };
+}
+
+async function fetchWebPageContext(url: string, signal?: AbortSignal): Promise<WebPageContext | null> {
+  const html = await fetchHtml(url, signal);
+  if (!html) return null;
+  return parseWebPageContext(html, url);
+}
+
+async function fetchBoothItemContext(urlStr: string, signal?: AbortSignal): Promise<AssetResult | null> {
+  const itemId = extractBoothItemId(urlStr);
+  if (!itemId) return null;
+
+  const canonicalUrl = `https://booth.pm/ja/items/${itemId}`;
+  const [html, details] = await Promise.all([
+    fetchHtml(canonicalUrl, signal),
+    fetchItemDetailsJson(itemId),
+  ]);
+
+  if (!html && !details) return null;
+
+  const $ = cheerio.load(html || "");
+  const rawTitle =
+    $('meta[property="og:title"]').attr("content")?.trim() ||
+    $("h1").first().text().trim() ||
+    $("title").first().text().trim() ||
+    itemId;
+  const title = cleanSearchSeed(rawTitle);
+
+  const shopName =
+    $('.seller-name').first().text().trim() ||
+    $('.shop-name').first().text().trim() ||
+    $('meta[name="author"]').attr("content")?.trim() ||
+    "";
+
+  const imageUrl =
+    $('meta[property="og:image"]').attr("content")?.trim() ||
+    "";
+
+  const metaDescription =
+    $('meta[property="og:description"]').attr("content")?.trim() ||
+    $('meta[name="description"]').attr("content")?.trim() ||
+    "";
+
+  const description = details?.description?.trim() || metaDescription || "";
+
+  const metaPrice = $('meta[property="product:price:amount"]').attr("content")?.trim();
+  let price = metaPrice ? `${metaPrice} JPY` : $(".price").first().text().trim() || "";
+  if ((!price || price === "JPY") && Array.isArray(details?.variations) && details?.variations.length > 0) {
+    const prices = details.variations.map((v) => v.price).filter((v) => typeof v === "number");
+    if (prices.length > 0) {
+      const min = Math.min(...prices);
+      const max = Math.max(...prices);
+      price = min === max ? `${min} JPY` : `${min} ~ ${max} JPY`;
+    }
+  }
+
+  return {
+    id: itemId,
+    title: title || itemId,
+    shopName: shopName || "BOOTH",
+    price: price || "Unknown",
+    url: canonicalUrl,
+    imageUrl: imageUrl || undefined,
+    description,
+    tags: Array.from(new Set(details?.tags || [])).slice(0, 12),
+  };
+}
+
 function buildRecentConversationForAgent(messages: ClientMessage[], maxTurns: number): string {
   // 只取最近 maxTurns 条，避免 prompt 过长；并携带 items/image 等元信息，帮助理解上下文。
   const start = Math.max(0, messages.length - Math.max(1, maxTurns));
@@ -298,6 +528,235 @@ function compactCandidatesForAgent(items: BoothRawItem[]): any[] {
     tags: x.tags,
     variations: x.variations, // 传入规格信息，包含适配模型名称等关键决策依据
   }));
+}
+
+function summarizeCandidatesForAgent(items: BoothRawItem[]): {
+  total: number;
+  unique_shop_count: number;
+  dominant_shops: { shopName: string; count: number }[];
+  title_samples: string[];
+  tag_samples: string[];
+} {
+  const shopCounts = new Map<string, number>();
+  const tagCounts = new Map<string, number>();
+
+  for (const item of items || []) {
+    const shop = (item.shopName || "").trim();
+    if (shop) shopCounts.set(shop, (shopCounts.get(shop) || 0) + 1);
+    for (const tag of item.tags || []) {
+      const cleaned = String(tag || "").trim();
+      if (!cleaned) continue;
+      tagCounts.set(cleaned, (tagCounts.get(cleaned) || 0) + 1);
+    }
+  }
+
+  const dominant_shops = Array.from(shopCounts.entries())
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 5)
+    .map(([shopName, count]) => ({ shopName, count }));
+
+  const tag_samples = Array.from(tagCounts.entries())
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 8)
+    .map(([tag]) => tag);
+
+  const title_samples = (items || [])
+    .slice(0, 8)
+    .map((item) => item.title)
+    .filter(Boolean);
+
+  return {
+    total: items.length,
+    unique_shop_count: shopCounts.size,
+    dominant_shops,
+    title_samples,
+    tag_samples,
+  };
+}
+
+async function decideInputPlan(params: {
+  openai: OpenAI;
+  model: string;
+  messages: ClientMessage[];
+  evidence: InputEvidence;
+  signal?: AbortSignal;
+  language?: string;
+}): Promise<PlannerDecision> {
+  const { openai, model, messages, evidence, signal, language = "zh" } = params;
+  const conversation = buildRecentConversationForAgent(messages, 12);
+  const lastUserImage = extractLastUserImage(messages);
+  const langName = language.startsWith("en") ? "English" : language.startsWith("ja") ? "Japanese" : "Chinese";
+
+  const system = {
+    role: "system",
+    content: [
+      "你是一个输入规划器。你的任务不是直接搜索商品，而是先判断当前输入最应该走哪种处理路径。",
+      `\n输出内容请使用 ${langName}。`,
+      "\n你只能输出严格 JSON，不要输出 Markdown，不要解释。",
+      "\n你必须在以下 action 中选择一个：",
+      "\n- chat_reply：普通闲聊、感谢、非检索任务，直接回复。",
+      "\n- direct_booth_item：用户直接给了 Booth 商品链接。",
+      "\n- direct_booth_shop：用户直接给了 Booth 店铺/主页链接。",
+      "\n- direct_booth_search：用户直接给了 Booth 搜索页链接。",
+      "\n- image_lookup：用户主要提供了图片，需要先走图片视觉匹配/图片理解。",
+      "\n- web_link_lookup：用户给了普通网页链接，需要先读取网页标题和描述。",
+      "\n- normal_search：普通文字检索请求。",
+      "\n判断规则：",
+      "\n1) 如果 evidence 里有 booth_item_urls，优先考虑 direct_booth_item。",
+      "\n2) 如果 evidence 里有 booth_search_urls，优先考虑 direct_booth_search。",
+      "\n3) 如果 evidence 里有 booth_shop_urls，优先考虑 direct_booth_shop。",
+      "\n4) 如果 evidence 里有 generic_urls，且用户显然是在问这个链接内容，优先考虑 web_link_lookup。",
+      "\n5) 如果没有明确链接，但有图片，优先考虑 image_lookup。",
+      "\n6) 如果用户说“讲解/介绍/说明/解析/这是什么/帮我看看这个”，通常是 explain/summarize 型任务。",
+      "\n7) 如果用户说“找类似/推荐同类/找同款/再找一些”，通常是 find_similar/find_items 型任务。",
+      "\n8) normal_search 需要给出 keyword_ja、page、next_search_prompt_zh。",
+      "\n9) next_search_prompt_zh 只需要简短搜索指导，不要寒暄，不要写“正在为您搜索”“请稍候”“我来帮你找”这类执行状态句。",
+      "\n输出格式：",
+      "\n- {\"action\":\"chat_reply\",\"reply_zh\":\"...\"}",
+      "\n- {\"action\":\"direct_booth_item\",\"url\":\"...\",\"goal\":\"explain_item\"}",
+      "\n- {\"action\":\"direct_booth_item\",\"url\":\"...\",\"goal\":\"find_similar\"}",
+      "\n- {\"action\":\"direct_booth_shop\",\"url\":\"...\",\"goal\":\"summarize_shop\"}",
+      "\n- {\"action\":\"direct_booth_shop\",\"url\":\"...\",\"goal\":\"find_items\"}",
+      "\n- {\"action\":\"direct_booth_search\",\"url\":\"...\",\"keyword_ja\":\"...\",\"page\":1,\"next_search_prompt_zh\":\"...\"}",
+      "\n- {\"action\":\"image_lookup\",\"reason_zh\":\"...\"}",
+      "\n- {\"action\":\"web_link_lookup\",\"url\":\"...\",\"goal\":\"summarize_page\"}",
+      "\n- {\"action\":\"web_link_lookup\",\"url\":\"...\",\"goal\":\"find_item_from_page\"}",
+      "\n- {\"action\":\"normal_search\",\"keyword_ja\":\"...\",\"page\":1,\"next_search_prompt_zh\":\"...\"}",
+    ].join(""),
+  };
+
+  const payloadText = JSON.stringify(
+    {
+      conversation,
+      evidence,
+    },
+    null,
+    0
+  );
+
+  const user: any = lastUserImage
+    ? {
+        role: "user",
+        content: [
+          { type: "text", text: payloadText },
+          { type: "image_url", image_url: { url: lastUserImage } },
+        ],
+      }
+    : { role: "user", content: payloadText };
+
+  try {
+    const res = await openai.chat.completions.create(
+      {
+        model,
+        messages: [system as any, user as any] as any,
+        temperature: 0.1,
+      },
+      signal ? ({ signal } as any) : undefined
+    );
+
+    const raw = (res?.choices?.[0] as any)?.message?.content || "";
+    console.log("[Planner] RAW Response:", raw);
+    const parsed = safeJsonParse<any>(raw) || {};
+    console.log("[Planner] PARSED Decision:", JSON.stringify(parsed));
+
+    if (parsed?.action === "chat_reply") {
+      return {
+        action: "chat_reply",
+        reply_zh:
+          typeof parsed?.reply_zh === "string" && parsed.reply_zh.trim()
+            ? parsed.reply_zh.trim()
+            : "你可以告诉我你想找什么，或者给我一个 Booth 链接/图片，我来继续帮你分析。",
+      };
+    }
+
+    if (parsed?.action === "direct_booth_item" && typeof parsed?.url === "string") {
+      return {
+        action: "direct_booth_item",
+        url: parsed.url.trim(),
+        goal: parsed?.goal === "find_similar" ? "find_similar" : "explain_item",
+      };
+    }
+
+    if (parsed?.action === "direct_booth_shop" && typeof parsed?.url === "string") {
+      return {
+        action: "direct_booth_shop",
+        url: parsed.url.trim(),
+        goal: parsed?.goal === "find_items" ? "find_items" : "summarize_shop",
+      };
+    }
+
+    if (parsed?.action === "direct_booth_search" && typeof parsed?.url === "string") {
+      return {
+        action: "direct_booth_search",
+        url: parsed.url.trim(),
+        keyword_ja: typeof parsed?.keyword_ja === "string" ? parsed.keyword_ja.trim() : undefined,
+        page: Number.isFinite(parsed?.page) ? Math.max(1, Math.trunc(parsed.page)) : 1,
+        next_search_prompt_zh:
+          typeof parsed?.next_search_prompt_zh === "string" && parsed.next_search_prompt_zh.trim()
+            ? parsed.next_search_prompt_zh.trim()
+            : "沿用链接里的搜索条件；先看当前页；不准就换关键词。",
+      };
+    }
+
+    if (parsed?.action === "image_lookup") {
+      return {
+        action: "image_lookup",
+        reason_zh: typeof parsed?.reason_zh === "string" ? parsed.reason_zh.trim() : "用户主要提供了图片，需要先理解图片线索。",
+      };
+    }
+
+    if (parsed?.action === "web_link_lookup" && typeof parsed?.url === "string") {
+      return {
+        action: "web_link_lookup",
+        url: parsed.url.trim(),
+        goal: parsed?.goal === "find_item_from_page" ? "find_item_from_page" : "summarize_page",
+      };
+    }
+
+    if (parsed?.action === "normal_search") {
+      const keyword_ja = typeof parsed?.keyword_ja === "string" ? parsed.keyword_ja.trim() : "";
+      return {
+        action: "normal_search",
+        keyword_ja: keyword_ja || evidence.freeText.slice(0, 24),
+        page: Number.isFinite(parsed?.page) ? Math.max(1, Math.trunc(parsed.page)) : 1,
+        next_search_prompt_zh:
+          typeof parsed?.next_search_prompt_zh === "string" && parsed.next_search_prompt_zh.trim()
+            ? parsed.next_search_prompt_zh.trim()
+            : "优先搜更像商品名的词；先看第 1 页；如果结果不准就换更短关键词。",
+      };
+    }
+  } catch (e: any) {
+    console.warn("[Planner] failed:", e?.message || e);
+  }
+
+  if (evidence.boothItemUrls[0]) {
+    return { action: "direct_booth_item", url: evidence.boothItemUrls[0], goal: "explain_item" };
+  }
+  if (evidence.boothSearchUrls[0]) {
+    const hint = extractBoothSearchHintFromUrl(evidence.boothSearchUrls[0]);
+    return {
+      action: "direct_booth_search",
+      url: evidence.boothSearchUrls[0],
+      keyword_ja: hint.keywordJa,
+      page: hint.page || 1,
+      next_search_prompt_zh: "沿用链接里的搜索条件；先看当前页；不准就换关键词。",
+    };
+  }
+  if (evidence.boothShopUrls[0]) {
+    return { action: "direct_booth_shop", url: evidence.boothShopUrls[0], goal: "summarize_shop" };
+  }
+  if (evidence.genericUrls[0]) {
+    return { action: "web_link_lookup", url: evidence.genericUrls[0], goal: "summarize_page" };
+  }
+  if (evidence.hasImage) {
+    return { action: "image_lookup", reason_zh: "用户主要提供了图片。" };
+  }
+  return {
+    action: "normal_search",
+    keyword_ja: evidence.freeText.slice(0, 24) || "VRChat",
+    page: 1,
+    next_search_prompt_zh: "优先搜更像商品名的词；先看第 1 页；如果结果不准就换更短关键词。",
+  };
 }
 
 async function decideNextStepEndToEnd(params: {
@@ -357,6 +816,10 @@ async function decideNextStepEndToEnd(params: {
       "\n2) keyword_ja 必须是日文（可包含空格）；page 为正整数。",
       "\n2.1) next_search_prompt_zh 只需要简短的搜索指导，不要写成助手回复，不要带可爱语气，不要寒暄。",
       "\n2.2) next_search_prompt_zh 应直接说明下一次该怎么搜，例如：优先搜商品名、去掉店铺名、翻到下一页、换成更短关键词。",
+      "\n2.2.1) next_search_prompt_zh 不能写成执行状态或客套话，禁止出现“正在为您搜索”“请稍候”“继续帮你寻找”等句子。",
+      "\n2.3) 如果当前提供了 candidates_info，并且接下来还需要继续下一轮搜索，那么 next_search_prompt_zh 必须根据这次搜索结果来优化：说明本轮结果的问题，以及下一轮应该如何调整关键词或页码。",
+      "\n2.4) 例如：如果本轮结果大多是店铺名匹配、风格相似但不是同款、或者商品过少，那么 next_search_prompt_zh 应明确写出“去掉店铺名”“换更短商品名”“改搜外观词”“翻到下一页”等策略。",
+      "\n2.5) 只有当 candidates_info.summary.dominant_shops 明显显示某个店铺重复出现时，才能建议“去掉店铺名”。如果本轮结果没有明显店铺聚集，就不要机械重复这条建议。",
       "\n3) 若用户在续聊（例如下一页/更多/换关键词），要结合 hint/上下文理解。",
       "\n4) select 时只能从 candidates 里选，且不要选 exclude_ids/picked_ids；最多选择 max_pick 个。",
       "\n5) 若不确定，优先 search（不要错过用户检索意图）。只有在普通 Booth 搜索暂时无法锁定一模一样的目标时，才使用 action=reverse_image_search。",
@@ -367,9 +830,10 @@ async function decideNextStepEndToEnd(params: {
       "\n8) 反向搜图结果里若出现类似“店铺名 + 商品名”的组合，应当先执行一次booth搜索，识别出店铺名字，并尝试去掉店铺名字仅使用商品名字搜索。",
       "\n9) 如果你已经拿到了 reverse_image_context，就不要再次请求 action=reverse_image_search，而要基于已有线索继续 search / select / reply。",
       "\n10) 如果当前已经提供了 candidates，但你发现这些候选里没有一模一样的目标、或者仍无法判断正确商品，此时可以输出 action=reverse_image_search，请求额外图像线索。",
+      "\n11) 如果当前这一轮已经有 candidates_info，但结果不足以结束任务，优先利用这轮结果来改写 next_search_prompt_zh，再决定下一轮搜索，而不是重复沿用上一次的泛化指导。",
       "\n\n输出格式四选一：",
       "\n- {\"action\":\"reply\",\"reply_zh\":\"...\"}",
-      "\n- {\"action\":\"search\",\"keyword_ja\":\"...\",\"next_search_prompt_zh\":\"优先搜商品名；先看第1页；如果结果不对就去掉店铺名。\",\"page\":1}",
+      "\n- {\"action\":\"search\",\"keyword_ja\":\"...\",\"next_search_prompt_zh\":\"优先搜商品名；先看第1页；如果结果不对就换别的关键词再试一次。\",\"page\":1}",
       "\n- {\"action\":\"reverse_image_search\",\"reason_zh\":\"...\"}",
       "\n- {\"action\":\"select\",\"selected\":[{\"id\":\"...\",\"description_zh\":\"...\",\"tags\":[\"...\"],\"reason_zh\":\"...\"}],\"done\":true}",
     ].join(""),
@@ -379,6 +843,7 @@ async function decideNextStepEndToEnd(params: {
     ? {
         keyword_ja: candidatesKeywordJa,
         page: candidatesPage,
+        summary: summarizeCandidatesForAgent(candidates),
         candidates: compactCandidatesForAgent(candidates),
       }
     : null;
@@ -1010,6 +1475,57 @@ export default async function handler(req: any) {
         });
       };
 
+      const streamContextReply = async (params: {
+        userInstruction: string;
+        contextLabel: string;
+        contextSummary: string;
+        sourceUrl?: string;
+      }) => {
+        if (stopped) return;
+        const { userInstruction, contextLabel, contextSummary, sourceUrl } = params;
+        const langName = language?.startsWith("en") ? "English" : language?.startsWith("ja") ? "Japanese" : "Chinese";
+
+        const system = {
+          role: "system",
+          content: [
+            "你是一个叫璃璃的可爱助手，是用户的 VRChat Booth 资产查找助手。",
+            `\n用户当前的语言偏好是：${langName}。请务必使用 ${langName} 回复。`,
+            "\n你将收到用户指令和一个已经解析好的上下文对象。",
+            "\n你的任务是基于这个上下文直接回答用户的问题。",
+            "\n重要规则：",
+            "\n1) 不要编造上下文里没有的信息。",
+            "\n2) 如果上下文不足以回答，要明确说明不足之处。",
+            "\n3) 不要输出 JSON 代码块。",
+            "\n4) 使用 Markdown 正常回答即可。",
+          ].join(""),
+        };
+
+        const userText = [
+          `用户指令：${userInstruction}`,
+          `\n上下文类型：${contextLabel}`,
+          sourceUrl ? `\n来源链接：${sourceUrl}` : "",
+          `\n上下文内容：\n${contextSummary}`,
+        ].join("");
+
+        const response = await openai.chat.completions.create(
+          {
+            model: modelName,
+            messages: [system as any, { role: "user", content: userText } as any] as any,
+            temperature: 0.2,
+            stream: true,
+          },
+          requestSignal ? ({ signal: requestSignal } as any) : undefined
+        );
+
+        for await (const chunk of response as any) {
+          if (stopped) break;
+          const content = chunk?.choices?.[0]?.delta?.content;
+          if (content) {
+            await write(content);
+          }
+        }
+      };
+
       // 有些部署环境/反代会对小响应做缓冲，导致“看起来不流式”。
       // 这里通过：
       // 1) 使用 SSE 友好 header（见下方 Response headers）
@@ -1062,6 +1578,18 @@ export default async function handler(req: any) {
 
         await writeStatus("正在理解你的需求...");
 
+        const inputEvidence = extractInputEvidence(clientMessages);
+        await writeStatus("璃璃正在理解你的需求...");
+        const inputPlan = await decideInputPlan({
+          openai,
+          model: modelName,
+          messages: clientMessages,
+          evidence: inputEvidence,
+          signal: requestSignal,
+          language,
+        });
+        console.log("[Planner] Final plan:", JSON.stringify(inputPlan));
+
         const minNeed = 5;
         const maxPick = 15;
         const maxSteps = 4;
@@ -1075,31 +1603,111 @@ export default async function handler(req: any) {
         // 说明：Booth 搜索通常一页最多 ~60 条；抓取到 60 往往意味着还有下一页（经验启发式）。
         let lastFetchedCount = 0;
         let lastHasNextPage = false;
+        let firstDecision: AgentDecision;
 
-        // Step 1: 让 agent 基于完整上下文决定：直接回复 or 发起搜索
-        await writeStatus("璃璃正在规划下一步...");
-        let firstDecision = await decideNextStepEndToEnd({
-          openai,
-          model: modelName,
-          messages: clientMessages,
-          triedKeywords,
-          excludeIds: exclude,
-          pickedIds,
-          needMin: minNeed,
-          maxPick,
-          signal: requestSignal,
-          language,
-          reverseImageContext,
-          reverseImageAttempted,
-        });
-
-        if (stopped) return;
-
-        if (firstDecision.action === "reply") {
-          await write(firstDecision.reply_zh);
+        if (inputPlan.action === "chat_reply") {
+          await write(inputPlan.reply_zh);
           await writer.close();
           return;
+        } else if (inputPlan.action === "image_lookup") {
+          await writeStatus("璃璃判断这次需要先看图片线索...");
+          firstDecision = {
+            action: "reverse_image_search",
+            reason_zh: inputPlan.reason_zh,
+          };
+        } else if (inputPlan.action === "direct_booth_item") {
+          await writeStatus("璃璃正在解析 Booth 商品链接...");
+          const boothItem = await fetchBoothItemContext(inputPlan.url, requestSignal);
+          if (boothItem) {
+            if (inputPlan.goal === "explain_item") {
+              await writeStatus("已解析商品详情，璃璃正在整理说明...");
+              await streamAssistantReply({
+                userInstruction,
+                nextSearchPromptZh: "已直达商品链接，无需继续搜索。",
+                items: [boothItem],
+                keywordJa: boothItem.title,
+                page: 1,
+                fetchedCount: 1,
+                hasNextPage: false,
+              });
+              if (!stopped) await writer.close();
+              return;
+            }
+            exclude.add(boothItem.id);
+            firstDecision = {
+              action: "search",
+              keyword_ja: cleanSearchSeed(boothItem.title),
+              next_search_prompt_zh: "基于该商品找类似款；先搜商品名核心词；不准就换更短关键词。",
+              page: 1,
+            };
+          } else {
+            await writeStatus("商品链接解析失败，璃璃将改为普通搜索...");
+            firstDecision = {
+              action: "search",
+              keyword_ja: userInstruction.slice(0, 24),
+              next_search_prompt_zh: "按用户描述继续搜索；先看第 1 页；不准就换关键词。",
+              page: 1,
+            };
+          }
+        } else if (inputPlan.action === "direct_booth_shop") {
+          await writeStatus("璃璃正在读取 Booth 店铺信息...");
+          const shopContext = await fetchWebPageContext(inputPlan.url, requestSignal);
+          if (shopContext && inputPlan.goal === "summarize_shop") {
+            await writeStatus("已读取店铺信息，璃璃正在整理说明...");
+            await streamContextReply({
+              userInstruction,
+              contextLabel: "booth_shop",
+              contextSummary: JSON.stringify(shopContext, null, 2),
+              sourceUrl: inputPlan.url,
+            });
+            if (!stopped) await writer.close();
+            return;
+          }
+          const shopKeyword = cleanSearchSeed(shopContext?.title || shopContext?.siteName || userInstruction);
+          firstDecision = {
+            action: "search",
+            keyword_ja: shopKeyword.slice(0, 64),
+            next_search_prompt_zh: "基于店铺线索搜索相关商品；先看第 1 页；不准就换更具体的商品词。",
+            page: 1,
+          };
+        } else if (inputPlan.action === "direct_booth_search") {
+          const searchHint = extractBoothSearchHintFromUrl(inputPlan.url);
+          firstDecision = {
+            action: "search",
+            keyword_ja: inputPlan.keyword_ja || searchHint.keywordJa || userInstruction.slice(0, 24),
+            next_search_prompt_zh: inputPlan.next_search_prompt_zh || "沿用链接里的搜索条件；先看当前页；不准就换关键词。",
+            page: inputPlan.page || searchHint.page || 1,
+          };
+        } else if (inputPlan.action === "web_link_lookup") {
+          await writeStatus("璃璃正在读取网页标题和描述...");
+          const pageContext = await fetchWebPageContext(inputPlan.url, requestSignal);
+          if (pageContext && inputPlan.goal === "summarize_page") {
+            await writeStatus("已读取网页信息，璃璃正在整理说明...");
+            await streamContextReply({
+              userInstruction,
+              contextLabel: "web_page",
+              contextSummary: JSON.stringify(pageContext, null, 2),
+              sourceUrl: inputPlan.url,
+            });
+            if (!stopped) await writer.close();
+            return;
+          }
+          firstDecision = {
+            action: "search",
+            keyword_ja: cleanSearchSeed(pageContext?.title || userInstruction).slice(0, 64),
+            next_search_prompt_zh: "根据网页标题提取商品核心词；先看第 1 页；不准就换更短关键词。",
+            page: 1,
+          };
+        } else {
+          firstDecision = {
+            action: "search",
+            keyword_ja: inputPlan.keyword_ja,
+            next_search_prompt_zh: inputPlan.next_search_prompt_zh,
+            page: inputPlan.page,
+          };
         }
+
+        if (stopped) return;
 
         if (firstDecision.action === "reverse_image_search") {
           reverseImageAttempted = true;
@@ -1277,6 +1885,9 @@ export default async function handler(req: any) {
                 openai,
                 model: modelName,
                 messages: clientMessages,
+                candidates: pageItems,
+                candidatesKeywordJa: currentKeywordJa,
+                candidatesPage: currentPage,
                 triedKeywords,
                 excludeIds: exclude,
                 pickedIds,
