@@ -249,7 +249,7 @@ async function searchGoogleReverseImage(imageUrl: string, signal?: AbortSignal):
   url.searchParams.set("type", "visual_matches");
   url.searchParams.set("api_key", serpApiKey);
   url.searchParams.set("hl", "ja");
-  url.searchParams.set("country", "jp");
+  url.searchParams.set("country", "us");
 
   const response = await fetch(url.toString(), {
     method: "GET",
