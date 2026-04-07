@@ -1434,6 +1434,7 @@ const Sidebar = ({
   user, 
   sessions, 
   sessionsLoading,
+  deletingSessionIds,
   collapsed,
   currentSessionId, 
   onSelectSession, 
@@ -1449,6 +1450,7 @@ const Sidebar = ({
   user: any; 
   sessions: ChatSession[]; 
   sessionsLoading: boolean;
+  deletingSessionIds: string[];
   collapsed: boolean;
   currentSessionId: string | null; 
   onSelectSession: (id: string) => void | Promise<void>; 
@@ -1530,16 +1532,21 @@ const Sidebar = ({
                   className={`group flex items-center gap-1 w-full ${reducedMotion ? '' : 'bh-anim-fade-left'}`}
                   style={getStaggerStyle(i, !reducedMotion, 28, 220)}
                 >
+                  {(() => {
+                    const isDeleting = deletingSessionIds.includes(session.id);
+                    return (
+                      <>
                   <button
-                    onClick={() => { onSelectSession(session.id); if(window.innerWidth < 768) onClose(); }}
+                    onClick={() => { if (isDeleting) return; onSelectSession(session.id); if(window.innerWidth < 768) onClose(); }}
                     title={session.title || t("UntitledChat")}
+                    disabled={isDeleting}
                     className={`flex-grow min-w-0 ${collapsed ? 'h-11 px-0 justify-center text-center' : 'px-4 py-3 text-left'} rounded-2xl text-sm flex items-center ${collapsed ? '' : 'gap-3'} transition-all ${
                       currentSessionId === session.id 
                         ? "bg-[#fc4d50]/10 text-[#fc4d50] border border-[#fc4d50]/20" 
                         : "text-zinc-400 hover:bg-zinc-800/50 hover:text-zinc-200"
-                    }`}
+                    } ${isDeleting ? 'opacity-70 cursor-wait' : ''}`}
                   >
-                    <MessageSquare size={16} className="flex-shrink-0" />
+                    {isDeleting ? <Loader2 size={16} className="flex-shrink-0 animate-spin" /> : <MessageSquare size={16} className="flex-shrink-0" />}
                     {!collapsed && (
                       <span className="truncate min-w-0 text-left">
                         {session.title || t("UntitledChat")}
@@ -1548,14 +1555,18 @@ const Sidebar = ({
                   </button>
                   {!collapsed && (
                     <button
-                      onClick={(e) => { e.stopPropagation(); onDeleteSession(session.id); }}
-                      className="p-2 text-zinc-600 hover:text-[#ff3d7f] hover:bg-zinc-800 rounded-lg transition-colors opacity-0 group-hover:opacity-100"
+                      onClick={(e) => { e.stopPropagation(); if (isDeleting) return; onDeleteSession(session.id); }}
+                      disabled={isDeleting}
+                      className={`p-2 rounded-lg transition-colors ${isDeleting ? 'text-zinc-500 cursor-wait opacity-100' : 'text-zinc-600 hover:text-[#ff3d7f] hover:bg-zinc-800 opacity-0 group-hover:opacity-100'}`}
                       title={t("DeleteChat")}
                       aria-label={t("DeleteChat")}
                     >
-                      <Trash2 size={14} />
+                      {isDeleting ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}
                     </button>
                   )}
+                      </>
+                    );
+                  })()}
                 </div>
               ))
             )}
@@ -2280,6 +2291,7 @@ const App = () => {
   const [isAdminPanelOpen, setIsAdminPanelOpen] = useState(false);
   const [isDebugContextOpen, setIsDebugContextOpen] = useState(false);
   const [lastChatRequestDebug, setLastChatRequestDebug] = useState<ChatRequestDebugInfo | null>(null);
+  const [deletingSessionIds, setDeletingSessionIds] = useState<string[]>([]);
 
   // Latest turn meta (for sidebar display)
   const [dailyTurnCount, setDailyTurnCount] = useState<number | undefined>(undefined);
@@ -2847,6 +2859,7 @@ const App = () => {
 
   const handleDeleteSessionWithStorageCleanup = async (id: string) => {
     if (!user || !isUserEmailVerified(user)) return;
+    if (deletingSessionIds.includes(id)) return;
     const ok = await confirmAsync({
       title: t("DeleteChat"),
       message: t("DeleteChatConfirm"),
@@ -2857,6 +2870,7 @@ const App = () => {
     if (!ok) return;
 
     try {
+      setDeletingSessionIds((prev) => prev.includes(id) ? prev : [...prev, id]);
       const token = await getSupabaseAccessToken();
       if (!token) throw new Error('Not authenticated');
 
@@ -2877,6 +2891,8 @@ const App = () => {
     } catch (e) {
       console.error("Delete error:", e);
       pushToast({ type: 'error', title: t("DeleteFailed"), message: t("DeleteChatFailedGeneral") });
+    } finally {
+      setDeletingSessionIds((prev) => prev.filter((sessionId) => sessionId !== id));
     }
   };
 
@@ -3458,6 +3474,7 @@ const App = () => {
         user={user}
         sessions={sessions}
         sessionsLoading={sessionsLoading}
+        deletingSessionIds={deletingSessionIds}
         collapsed={sidebarCollapsed}
         currentSessionId={currentSessionId}
         onSelectSession={handleSelectSession}
