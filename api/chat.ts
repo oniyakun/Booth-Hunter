@@ -101,6 +101,10 @@ type SearchDecisionDebugPayload = {
   stage: "initial" | "loop_search" | "loop_followup_search";
 };
 
+type BatchScreenDecision = {
+  selected: BatchPick[];
+};
+
 function safeJsonParse<T>(raw: string): T | null {
   const s = (raw || "").trim();
   if (!s) return null;
@@ -516,9 +520,9 @@ function buildRecentConversationForAgent(messages: ClientMessage[], maxTurns: nu
     .join("\n\n");
 }
 
-function compactCandidatesForAgent(items: BoothRawItem[]): any[] {
+function compactCandidatesForAgent(items: BoothRawItem[], limit = 80): any[] {
   // 控制 token：只给 agent 必要字段。
-  return (items || []).slice(0, 80).map((x) => ({
+  return (items || []).slice(0, Math.max(1, limit)).map((x) => ({
     id: x.id,
     title: x.title,
     shopName: x.shopName,
@@ -572,6 +576,175 @@ function summarizeCandidatesForAgent(items: BoothRawItem[]): {
     title_samples,
     tag_samples,
   };
+}
+
+function chunkItems<T>(items: T[], size: number): T[][] {
+  if (!Array.isArray(items) || !items.length || size <= 0) return [];
+  const out: T[][] = [];
+  for (let i = 0; i < items.length; i += size) {
+    out.push(items.slice(i, i + size));
+  }
+  return out;
+}
+
+async function mapWithConcurrency<T, R>(
+  items: T[],
+  concurrency: number,
+  worker: (item: T, index: number) => Promise<R>
+): Promise<R[]> {
+  if (!Array.isArray(items) || items.length === 0) return [];
+  const limit = Math.max(1, Math.floor(concurrency));
+  const results = new Array<R>(items.length);
+  let nextIndex = 0;
+
+  const runWorker = async () => {
+    while (true) {
+      const currentIndex = nextIndex++;
+      if (currentIndex >= items.length) return;
+      results[currentIndex] = await worker(items[currentIndex], currentIndex);
+    }
+  };
+
+  const workers = Array.from({ length: Math.min(limit, items.length) }, () => runWorker());
+  await Promise.all(workers);
+  return results;
+}
+
+async function screenCandidatesBatch(params: {
+  openai: OpenAI;
+  model: string;
+  messages: ClientMessage[];
+  candidates: BoothRawItem[];
+  candidatesKeywordJa: string;
+  candidatesPage: number;
+  excludeIds: Set<string>;
+  pickedIds: Set<string>;
+  signal?: AbortSignal;
+  language?: string;
+  reverseImageContext?: ReverseImageContext;
+  batchIndex: number;
+  batchCount: number;
+  perBatchLimit: number;
+}): Promise<BatchScreenDecision> {
+  const {
+    openai,
+    model,
+    messages,
+    candidates,
+    candidatesKeywordJa,
+    candidatesPage,
+    excludeIds,
+    pickedIds,
+    signal,
+    language = "zh",
+    reverseImageContext,
+    batchIndex,
+    batchCount,
+    perBatchLimit,
+  } = params;
+
+  const { text: userInstruction, hasImage } = extractUserInstruction(messages);
+  const lastUserImage = extractLastUserImage(messages);
+  const conversation = buildRecentConversationForAgent(messages, 12);
+  const langName = language.startsWith("en") ? "English" : language.startsWith("ja") ? "Japanese" : "Chinese";
+
+  const system = {
+    role: "system",
+    content: [
+      "你是一个 Booth 商品批量筛选器。",
+      `\n请使用 ${langName} 书写 description_zh / reason_zh。`,
+      "\n你的任务是：在当前这一批完整商品信息里，找出最可能符合用户需求的候选商品。",
+      "\n这一步不是最终回答，也不是下一步搜索决策；只做当前批次的候选保留。",
+      "\n重要规则：",
+      "\n1) 只能从本批 candidates 中选择。",
+      "\n2) 输出必须是严格 JSON，不要 Markdown，不要解释。",
+      "\n3) 尽量保留可能相关的商品，避免过早误杀；但不要保留明显无关的商品。",
+      "\n4) 最多选择 per_batch_limit 个。",
+      "\n5) 不要输出 exclude_ids / picked_ids 中已经展示过的商品。",
+      "\n输出格式：",
+      "\n{\"selected\":[{\"id\":\"...\",\"description_zh\":\"...\",\"tags\":[\"...\"],\"reason_zh\":\"...\"}]}",
+    ].join(""),
+  };
+
+  const userPayloadText = JSON.stringify(
+    {
+      conversation,
+      user_instruction: userInstruction,
+      has_image: hasImage,
+      batch_index: batchIndex + 1,
+      batch_count: batchCount,
+      per_batch_limit: perBatchLimit,
+      current_search: {
+        keyword_ja: candidatesKeywordJa,
+        page: candidatesPage,
+      },
+      exclude_ids: Array.from(excludeIds).slice(0, 200),
+      picked_ids: Array.from(pickedIds).slice(0, 200),
+      reverse_image_context: reverseImageContext
+        ? {
+            summary: reverseImageContext.summary,
+            best_guess: reverseImageContext.bestGuess,
+            keywords: reverseImageContext.keywords,
+            matches: reverseImageContext.matches,
+          }
+        : null,
+      candidates_info: {
+        summary: summarizeCandidatesForAgent(candidates),
+        candidates: compactCandidatesForAgent(candidates),
+      },
+    },
+    null,
+    0
+  );
+
+  const user: any = lastUserImage
+    ? {
+        role: "user",
+        content: [
+          { type: "text", text: userPayloadText },
+          { type: "image_url", image_url: { url: lastUserImage } },
+        ],
+      }
+    : {
+        role: "user",
+        content: userPayloadText,
+      };
+
+  try {
+    const res = await openai.chat.completions.create(
+      {
+        model,
+        messages: [system as any, user as any] as any,
+        temperature: 0.1,
+      },
+      signal ? ({ signal } as any) : undefined
+    );
+
+    const raw = (res?.choices?.[0] as any)?.message?.content || "";
+    console.log(`[BatchScreen] Batch ${batchIndex + 1}/${batchCount} RAW: ${raw}`);
+    const parsed = safeJsonParse<any>(raw) || {};
+    const selected = Array.isArray(parsed?.selected) ? parsed.selected : [];
+
+    const out: BatchPick[] = [];
+    for (const item of selected) {
+      const id = item?.id ? String(item.id) : "";
+      if (!id) continue;
+      if (excludeIds.has(id) || pickedIds.has(id)) continue;
+      out.push({
+        id,
+        description_zh: typeof item?.description_zh === "string" ? item.description_zh.trim() : "",
+        tags: normalizeTags(item?.tags),
+        reason_zh: typeof item?.reason_zh === "string" ? item.reason_zh.trim() : undefined,
+      });
+      if (out.length >= perBatchLimit) break;
+    }
+
+    console.log(`[BatchScreen] Batch ${batchIndex + 1}/${batchCount} selected ids:`, out.map((item) => item.id));
+    return { selected: out };
+  } catch (e: any) {
+    console.warn(`[BatchScreen] Batch ${batchIndex + 1}/${batchCount} failed:`, e?.message || e);
+    return { selected: [] };
+  }
 }
 
 async function decideInputPlan(params: {
@@ -775,6 +948,7 @@ async function decideNextStepEndToEnd(params: {
   language?: string;
   reverseImageContext?: ReverseImageContext;
   reverseImageAttempted?: boolean;
+  candidateCompactionLimit?: number;
 }): Promise<AgentDecision> {
   const {
     openai,
@@ -792,6 +966,7 @@ async function decideNextStepEndToEnd(params: {
     language = "zh",
     reverseImageContext,
     reverseImageAttempted = false,
+    candidateCompactionLimit = 80,
   } = params;
 
   const { text: userInstruction, hasImage } = extractUserInstruction(messages);
@@ -844,7 +1019,7 @@ async function decideNextStepEndToEnd(params: {
         keyword_ja: candidatesKeywordJa,
         page: candidatesPage,
         summary: summarizeCandidatesForAgent(candidates),
-        candidates: compactCandidatesForAgent(candidates),
+        candidates: compactCandidatesForAgent(candidates, candidateCompactionLimit),
       }
     : null;
 
@@ -1452,6 +1627,7 @@ export default async function handler(req: any) {
             model: modelName,
             messages: [system as any, user as any] as any,
             temperature: 0.2,
+            max_tokens: 16384,
             stream: true,
           },
           // 最终流式回复可以给长一点超时，或者依赖 global 请求超时
@@ -1459,10 +1635,15 @@ export default async function handler(req: any) {
         );
 
         let streamedText = "";
+        let finishReason: string | null = null;
         for await (const chunk of response as any) {
           if (stopped) break;
-          const delta = chunk?.choices?.[0]?.delta;
+          const choice = chunk?.choices?.[0];
+          const delta = choice?.delta;
           const content = delta?.content;
+          if (choice?.finish_reason) {
+            finishReason = String(choice.finish_reason);
+          }
           if (content) {
             streamedText += content;
             await write(content);
@@ -1470,6 +1651,7 @@ export default async function handler(req: any) {
         }
         console.log("[Reply] streamed text summary:", {
           length: streamedText.length,
+          finishReason,
           hasJsonBlock: /```json\s*\[[\s\S]*?\]\s*```/i.test(streamedText),
           preview: streamedText.slice(0, 400),
         });
@@ -1512,18 +1694,25 @@ export default async function handler(req: any) {
             model: modelName,
             messages: [system as any, { role: "user", content: userText } as any] as any,
             temperature: 0.2,
+            max_tokens: 16384,
             stream: true,
           },
           requestSignal ? ({ signal: requestSignal } as any) : undefined
         );
 
+        let finishReason: string | null = null;
         for await (const chunk of response as any) {
           if (stopped) break;
-          const content = chunk?.choices?.[0]?.delta?.content;
+          const choice = chunk?.choices?.[0];
+          const content = choice?.delta?.content;
+          if (choice?.finish_reason) {
+            finishReason = String(choice.finish_reason);
+          }
           if (content) {
             await write(content);
           }
         }
+        console.log("[ContextReply] stream summary:", { finishReason });
       };
 
       // 有些部署环境/反代会对小响应做缓冲，导致“看起来不流式”。
@@ -1769,6 +1958,71 @@ export default async function handler(req: any) {
           if (stopped) return;
           await writeStatus(`抓取到 ${pageItems.length} 条，璃璃正在选择/决定下一步...`);
 
+          const BATCH_SCREEN_THRESHOLD = 20;
+          const BATCH_SCREEN_SIZE = 20;
+          const shouldBatchScreen = pageItems.length > BATCH_SCREEN_THRESHOLD;
+          if (shouldBatchScreen) {
+            await writeStatus(`候选较多，璃璃正在分批筛选第 ${currentPage} 页结果...`);
+            const batches = chunkItems(pageItems, BATCH_SCREEN_SIZE);
+            const perBatchLimit = Math.max(3, Math.min(8, Math.ceil(maxPick / Math.max(1, batches.length))));
+            const batchResults = await mapWithConcurrency(
+              batches,
+              2,
+              (batch, batchIndex) =>
+                screenCandidatesBatch({
+                  openai,
+                  model: modelName,
+                  messages: clientMessages,
+                  candidates: batch,
+                  candidatesKeywordJa: currentKeywordJa,
+                  candidatesPage: currentPage,
+                  excludeIds: exclude,
+                  pickedIds,
+                  signal: requestSignal,
+                  language,
+                  reverseImageContext,
+                  batchIndex,
+                  batchCount: batches.length,
+                  perBatchLimit,
+                })
+            );
+
+            let batchPickedCount = 0;
+            for (let batchIndex = 0; batchIndex < batches.length; batchIndex++) {
+              const batch = batches[batchIndex];
+              const decision = batchResults[batchIndex];
+              for (const s of decision.selected) {
+                const raw = batch.find((x) => x.id === s.id);
+                if (!raw) continue;
+                if (exclude.has(raw.id) || pickedIds.has(raw.id)) continue;
+
+                pickedIds.add(raw.id);
+                batchPickedCount++;
+                picked.push({
+                  id: raw.id,
+                  title: raw.title,
+                  shopName: raw.shopName,
+                  price: raw.price,
+                  url: raw.url,
+                  imageUrl: raw.imageUrl,
+                  description: s.description_zh || raw.description || "",
+                  tags: (s.tags && s.tags.length ? s.tags : raw.tags) || [],
+                });
+              }
+            }
+
+            console.log(`[Loop] Step ${step} batch shortlist result:`, {
+              batchCount: batches.length,
+              batchPickedCount,
+              pickedLength: picked.length,
+              pickedIds: picked.map((x) => x.id),
+            });
+
+            if (batchPickedCount > 0) {
+              break;
+            }
+          }
+
           let decision: AgentDecision;
           try {
             console.log(`[Loop] Step ${step} starting decision...`);
@@ -1788,6 +2042,7 @@ export default async function handler(req: any) {
               language,
               reverseImageContext,
               reverseImageAttempted,
+              candidateCompactionLimit: shouldBatchScreen ? 12 : 80,
             });
             console.log(`[Loop] Step ${step} decision action: ${decision.action}`);
           } catch (e: any) {
@@ -1897,6 +2152,7 @@ export default async function handler(req: any) {
                 language,
                 reverseImageContext,
                 reverseImageAttempted,
+                candidateCompactionLimit: shouldBatchScreen ? 12 : 80,
               });
               console.log(`[Loop] Step ${step} next search decision: ${next.action}`);
             } catch (e: any) {
