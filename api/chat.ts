@@ -272,6 +272,7 @@ async function decideNextStepEndToEnd(params: {
           model,
           messages: [system as any, user as any] as any,
           temperature: 0.2,
+          reasoning_effort: "low",
         },
         { signal: controller.signal } as any
       ).finally(() => clearTimeout(timeoutId));
@@ -774,6 +775,7 @@ export default async function handler(req: any) {
             model: modelName,
             messages: [system as any, user as any] as any,
             temperature: 0.2,
+            reasoning_effort: "low",
             stream: true,
           },
           // 最终流式回复可以给长一点超时，或者依赖 global 请求超时
