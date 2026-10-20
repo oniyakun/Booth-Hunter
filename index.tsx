@@ -107,8 +107,8 @@ const ModalShell = ({
       <div className="w-full max-w-md bh-surface-strong rounded-3xl border border-white/10 shadow-2xl overflow-hidden">
         <div className="p-4 border-b border-white/5 flex items-center justify-between">
           <div className="text-white font-bold">{title}</div>
-          <button onClick={onClose} className="bh-icon-btn p-2 text-zinc-300 hover:text-white" aria-label={t("Close")}>
-            <X size={18} />
+          <button onClick={onClose} className="bh-icon-btn" aria-label={t("Close")}>
+            <X size={16} />
           </button>
         </div>
         <div className="p-4">{children}</div>
@@ -825,8 +825,8 @@ const AdminPanel = ({
             </div>
           </div>
 
-          <button onClick={onClose} className="bh-icon-btn p-2 text-zinc-300 hover:text-white" aria-label={t("Close")}>
-            <X size={20} />
+          <button onClick={onClose} className="bh-icon-btn" aria-label={t("Close")}>
+            <X size={16} />
           </button>
         </div>
 
@@ -1314,8 +1314,8 @@ const AuthModal = ({ isOpen, onClose, onLogin, canClose = true }: { isOpen: bool
         <div className="flex justify-between items-center mb-6">
           <h2 className="text-xl font-bold text-white">{isLogin ? t("Login") : t("Register")}</h2>
           {canClose && (
-            <button onClick={onClose} className="text-zinc-400 hover:text-white bh-icon-btn p-2" aria-label={t("Close")}>
-              <X size={20} />
+            <button onClick={onClose} className="bh-icon-btn" aria-label={t("Close")}>
+              <X size={16} />
             </button>
           )}
         </div>
