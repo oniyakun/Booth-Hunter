@@ -2797,7 +2797,7 @@ const App = () => {
               messages.map((msg, i) => (
                 <div
                   key={`${msg.id}-${messageAnimationNonce}`}
-                  className={reducedMotion ? '' : 'bh-anim-fade-up'}
+                  className={`bh-msg-row ${reducedMotion ? '' : 'bh-anim-fade-up'}`}
                   style={getStaggerStyle(i, !reducedMotion, 28, 320)}
                 >
                   <ChatMessageBubble message={msg} />
