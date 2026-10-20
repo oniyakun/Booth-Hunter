@@ -1732,10 +1732,70 @@ const AssetCardSkeleton = React.memo(({
   );
 });
 
+// 从流式文本中提取“已经完整输出”的商品对象。
+// 后端会在最终回复末尾输出 ```json [...] ```；这里不等整个 JSON 结束，
+// 只要数组中某个对象已经闭合，就把它交给前端渲染成卡片。
+function extractStreamingItems(text: string): AssetResult[] | undefined {
+  const fenceIdx = text.toLowerCase().indexOf('```json');
+  if (fenceIdx === -1) return undefined;
+
+  const startIdx = text.indexOf('[', fenceIdx);
+  if (startIdx === -1) return undefined;
+
+  const items: AssetResult[] = [];
+  let depth = 0;
+  let objStart = -1;
+  let inString = false;
+  let escaped = false;
+
+  for (let i = startIdx + 1; i < text.length; i++) {
+    const ch = text[i];
+
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (ch === '\\') escaped = true;
+      else if (ch === '"') inString = false;
+      continue;
+    }
+
+    if (ch === '"') {
+      inString = true;
+    } else if (ch === '{') {
+      if (depth === 0) objStart = i;
+      depth++;
+    } else if (ch === '}') {
+      if (depth === 0) continue;
+      depth--;
+      if (depth === 0 && objStart !== -1) {
+        try {
+          const parsed = JSON.parse(text.slice(objStart, i + 1));
+          if (parsed && typeof parsed === 'object' && (parsed as any).id) {
+            items.push(parsed as AssetResult);
+          }
+        } catch {
+          // 对象尚未完整/格式异常，等后续 chunk 再试
+        }
+        objStart = -1;
+      }
+    } else if (ch === ']' && depth === 0) {
+      break;
+    }
+  }
+
+  return items.length ? items : undefined;
+}
+
 const ChatMessageBubble = React.memo(({ message, largeLayout }: { message: Message; largeLayout: boolean }) => {
   const { t } = useTranslation();
   const isUser = message.role === 'user';
-  
+
+  // 流式过程中即时解析已完整的商品（message.items 要等流结束才会由后端结果写入）
+  const streamedItems = React.useMemo(
+    () => extractStreamingItems(message.text || ''),
+    [message.text]
+  );
+  const items = message.items && message.items.length > 0 ? message.items : (streamedItems || []);
+
   // Filter out JSON code blocks from display text
   const displayText = React.useMemo(() => {
     let text = message.text;
@@ -1743,8 +1803,10 @@ const ChatMessageBubble = React.memo(({ message, largeLayout }: { message: Messa
     text = text.replace(/```json[\s\S]*?```/gi, '');
     // Remove potentially incomplete JSON block at the end if streaming
     text = text.replace(/```json[\s\S]*/gi, '');
+    // Remove a partially streamed opening fence (``` / ```j / ```js ...) so no code flashes
+    if (message.isStreaming) text = text.replace(/```(?:j(?:s(?:o(?:n)?)?)?)?\s*$/i, '');
     return text.trim();
-  }, [message.text]);
+  }, [message.text, message.isStreaming]);
 
   return (
     <div className={`flex w-full mb-8 ${isUser ? 'justify-end' : 'justify-start'}`}>
@@ -1809,13 +1871,13 @@ const ChatMessageBubble = React.memo(({ message, largeLayout }: { message: Messa
         </div>
 
         {/* Asset Cards Grid */}
-        {message.items && message.items.length > 0 && (
+        {items.length > 0 && (
           <div className="w-full mt-6 pl-2">
             {largeLayout ? (
               // 大屏：最多展示 3 行卡片，剩余内容在该区域内纵向滚动查看
               <div className="max-h-[1000px] overflow-y-auto pr-2">
                 <div className="grid grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-5">
-                  {message.items.map((item, idx) => (
+                  {items.map((item, idx) => (
                     <AssetCard
                       key={item.id || idx}
                       asset={item}
@@ -1829,7 +1891,7 @@ const ChatMessageBubble = React.memo(({ message, largeLayout }: { message: Messa
             ) : (
               <>
                 <DraggableContainer>
-                  {message.items.map((item, idx) => (
+                  {items.map((item, idx) => (
                     <AssetCard key={item.id || idx} asset={item} />
                   ))}
                 </DraggableContainer>
@@ -1843,7 +1905,7 @@ const ChatMessageBubble = React.memo(({ message, largeLayout }: { message: Messa
         )}
 
         {/* Skeleton preview while streaming JSON */}
-        {(!message.items || message.items.length === 0) && message.isStreaming && message.isJsonStreaming && (
+        {items.length === 0 && message.isStreaming && message.isJsonStreaming && (
           <div className="w-full mt-6 pl-2">
             {largeLayout ? (
               <div className="max-h-[1300px] overflow-y-auto pr-2">
