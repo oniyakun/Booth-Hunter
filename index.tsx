@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from "react";
 import { createRoot } from "react-dom/client";
-import { Search, Image as ImageIcon, Upload, ExternalLink, Loader2, Sparkles, ShoppingBag, X, AlertCircle, Terminal, ChevronDown, ChevronUp, Send, Bot, User, MoveHorizontal, Hammer, LogOut, History, Plus, Menu, UserCircle, Layout, MessageSquare, Trash2, Github, Shield, Users, Pause, Globe } from "lucide-react";
+import { Search, Image as ImageIcon, Upload, ExternalLink, Loader2, Sparkles, ShoppingBag, X, AlertCircle, Terminal, ChevronDown, ChevronUp, Send, User, Hammer, LogOut, History, Plus, PanelLeft, UserCircle, Layout, MessageSquare, Trash2, Github, Shield, Users, Pause, Globe } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import "./i18n";
 import { useTranslation } from "react-i18next";
@@ -47,7 +47,7 @@ type UserLimitDraft = {
 
 const toastAccent = (t: ToastType) => {
   if (t === 'success') return 'border-emerald-500/30 bg-emerald-500/10 text-emerald-200';
-  if (t === 'error') return 'border-[#ff3d7f]/30 bg-[#ff3d7f]/10 text-[#ffd1e1]';
+  if (t === 'error') return 'border-[#FF5C5C]/30 bg-[#FF5C5C]/10 text-[#FFD3C6]';
   return 'border-white/10 bg-white/5 text-zinc-200';
 };
 
@@ -142,7 +142,7 @@ const ConfirmModal = ({
         <button
           onClick={onConfirm}
           className={`flex-1 py-2.5 rounded-xl text-sm font-bold text-white transition-all ${
-            options.destructive ? 'bg-[#ff3d7f] hover:bg-[#ff3d7f]/90' : 'bh-btn-primary'
+            options.destructive ? 'bg-[#FF5C5C] hover:bg-[#FF5C5C]/90' : 'bh-btn-primary'
           }`}
         >
           {options.confirmText || t("Confirm")}
@@ -513,7 +513,7 @@ const AdminPanel = ({
         </div>
 
         <div className="p-4 flex flex-col flex-grow">
-          <h3 className="font-bold text-sm text-white leading-snug bh-clamp-2 group-hover:text-[#fc4d50] transition-colors">
+          <h3 className="font-bold text-sm text-white leading-snug bh-clamp-2 group-hover:text-[#FF6B3D] transition-colors">
             {asset.title}
           </h3>
 
@@ -529,7 +529,7 @@ const AdminPanel = ({
             ))}
           </div>
 
-          <div className="mt-4 pt-3 border-t border-[#27272a] flex justify-between items-center">
+          <div className="mt-4 pt-3 border-t border-[#2A2230] flex justify-between items-center">
             <span className="text-[11px] text-zinc-500 truncate max-w-[60%]">{asset.shopName}</span>
              <a 
               href={asset.url} 
@@ -557,7 +557,7 @@ const AdminPanel = ({
     return (
       <div key={m.id || idx} className="bh-card p-4">
         <div className="flex items-center justify-between mb-2">
-          <div className={`text-xs font-mono ${isUser ? 'text-[#ff3d7f]' : 'text-[#fc4d50]'}`}>
+          <div className={`text-xs font-mono ${isUser ? 'text-[#FF5C5C]' : 'text-[#FF6B3D]'}`}>
             {m.role}
           </div>
           <div className="text-[10px] text-zinc-500">{m.timestamp ? new Date(m.timestamp).toLocaleString() : ''}</div>
@@ -836,7 +836,7 @@ const AdminPanel = ({
             {/* Header */}
             <div className="px-4 py-3 border-b border-white/5">
               <div className="flex items-center gap-2 text-white font-bold">
-                <Users size={18} className="text-[#ff3d7f]" />
+                <Users size={18} className="text-[#FF5C5C]" />
                 <span>{t("UserManagement")}</span>
               </div>
             </div>
@@ -882,7 +882,7 @@ const AdminPanel = ({
                     }}
                     className={`flex-1 px-2 py-1.5 rounded-lg text-xs font-medium transition-all ${
                       userSortBy === 'created_at'
-                        ? 'bg-[#ff3d7f]/20 text-white'
+                        ? 'bg-[#FF5C5C]/20 text-white'
                         : 'bg-white/5 text-zinc-400 hover:text-zinc-200 hover:bg-white/[0.07]'
                     }`}
                     title={t("CreatedAt")}
@@ -896,7 +896,7 @@ const AdminPanel = ({
                     }}
                     className={`flex-1 px-2 py-1.5 rounded-lg text-xs font-medium transition-all ${
                       userSortBy === 'last_active'
-                        ? 'bg-[#ff3d7f]/20 text-white'
+                        ? 'bg-[#FF5C5C]/20 text-white'
                         : 'bg-white/5 text-zinc-400 hover:text-zinc-200 hover:bg-white/[0.07]'
                     }`}
                     title={t("LastActive")}
@@ -910,7 +910,7 @@ const AdminPanel = ({
                     }}
                     className={`flex-1 px-2 py-1.5 rounded-lg text-xs font-medium transition-all ${
                       userSortBy === 'total_turn_count'
-                        ? 'bg-[#ff3d7f]/20 text-white'
+                        ? 'bg-[#FF5C5C]/20 text-white'
                         : 'bg-white/5 text-zinc-400 hover:text-zinc-200 hover:bg-white/[0.07]'
                     }`}
                     title={t("TotalTurns")}
@@ -993,7 +993,7 @@ const AdminPanel = ({
                   </button>
                   
                   <div className="text-[10px] text-zinc-500 leading-relaxed bg-white/5 rounded-lg px-3 py-2">
-                    <span className="text-[#ff3d7f]">{t("Tip")}: </span>{t("LimitHint")}
+                    <span className="text-[#FF5C5C]">{t("Tip")}: </span>{t("LimitHint")}
                   </div>
                 </div>
               </div>
@@ -1022,9 +1022,9 @@ const AdminPanel = ({
                         loadChats(u.id);
                       }
                     }}
-                    className={`w-full text-left p-3 rounded-2xl border transition-all cursor-pointer outline-none focus:ring-2 focus:ring-[#fc4d50]/30 ${
+                    className={`w-full text-left p-3 rounded-2xl border transition-all cursor-pointer outline-none focus:ring-2 focus:ring-[#FF6B3D]/30 ${
                       selectedUserId === u.id
-                        ? 'border-[#fc4d50]/25 bg-[#fc4d50]/10'
+                        ? 'border-[#FF6B3D]/25 bg-[#FF6B3D]/10'
                         : 'border-white/5 hover:border-white/10 hover:bg-white/5'
                     }`}
                   >
@@ -1075,7 +1075,7 @@ const AdminPanel = ({
                       </div>
                     </div>
                     {u.is_admin && (
-                      <div className="mt-2 inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-lg bg-[#ff3d7f]/10 border border-[#ff3d7f]/20 text-[#ff3d7f]">
+                      <div className="mt-2 inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-lg bg-[#FF5C5C]/10 border border-[#FF5C5C]/20 text-[#FF5C5C]">
                         <Shield size={12} />
                         {t("Admin")}
                       </div>
@@ -1100,7 +1100,7 @@ const AdminPanel = ({
 
             {error && (
               <div className="p-4">
-                <div className="p-3 bg-[#ff3d7f]/10 border border-[#ff3d7f]/25 rounded-xl text-[#ffd1e1] text-sm">
+                <div className="p-3 bg-[#FF5C5C]/10 border border-[#FF5C5C]/25 rounded-xl text-[#FFD3C6] text-sm">
                   {error}
                 </div>
               </div>
@@ -1130,9 +1130,9 @@ const AdminPanel = ({
                           loadChatDetail(c.id);
                         }
                       }}
-                      className={`w-full text-left p-3 rounded-2xl border transition-all cursor-pointer outline-none focus:ring-2 focus:ring-[#fc4d50]/30 ${
+                      className={`w-full text-left p-3 rounded-2xl border transition-all cursor-pointer outline-none focus:ring-2 focus:ring-[#FF6B3D]/30 ${
                         selectedChatId === c.id
-                          ? 'border-[#fc4d50]/25 bg-[#fc4d50]/10'
+                          ? 'border-[#FF6B3D]/25 bg-[#FF6B3D]/10'
                           : 'border-white/5 hover:border-white/10 hover:bg-white/5'
                       }`}
                     >
@@ -1327,7 +1327,7 @@ const AuthModal = ({ isOpen, onClose, onLogin, canClose = true }: { isOpen: bool
         )}
 
         {error && (
-          <div className="mb-4 p-3 bg-[#fc4d50]/10 border border-[#fc4d50]/25 rounded-lg text-[#ffd1e1] text-sm flex items-start gap-2">
+          <div className="mb-4 p-3 bg-[#FF6B3D]/10 border border-[#FF6B3D]/25 rounded-lg text-[#FFD3C6] text-sm flex items-start gap-2">
             <AlertCircle size={16} className="mt-0.5 flex-shrink-0" />
             <span>{error}</span>
           </div>
@@ -1367,7 +1367,7 @@ const AuthModal = ({ isOpen, onClose, onLogin, canClose = true }: { isOpen: bool
           {isLogin ? t("NoAccount") : t("HasAccount")}
           <button
             onClick={() => setIsLogin(!isLogin)}
-            className="ml-1 text-[#fc4d50] hover:underline font-medium"
+            className="ml-1 text-[#FF6B3D] hover:underline font-medium"
           >
             {isLogin ? t("RegisterNow") : t("GoLogin")}
           </button>
@@ -1410,323 +1410,219 @@ const Sidebar = ({
   reducedMotion: boolean;
 }) => {
   const { t } = useTranslation();
+  const name = user?.email?.split('@')[0] || '';
+  const initial = (name || 'U').slice(0, 1).toUpperCase();
+  const turnPct = totalTurnLimit && totalTurnLimit > 0
+    ? Math.min(100, ((totalTurnCount || 0) / totalTurnLimit) * 100)
+    : 0;
+
   return (
     <>
-      {/* Overlay for mobile */}
-      {isOpen && (
-        <div 
-          className="fixed inset-0 bg-black/60 backdrop-blur-sm z-30 md:hidden"
-          onClick={onClose}
-        />
-      )}
-      
-      <div
-        className={`fixed inset-y-0 left-0 z-40 transform ${
-          isOpen ? 'translate-x-0' : '-translate-x-full'
-        } transition-transform duration-300 ease-in-out md:translate-x-0 md:static ${
-          collapsed ? 'md:w-20' : 'md:w-80'
-        } md:transition-[width] md:duration-300 md:ease-in-out overflow-hidden`}
-      >
-        <div className="h-full bh-surface-strong border-r border-white/5">
-        <div className="flex flex-col h-full">
-          <div className={`flex-none px-4 h-[72px] border-b border-white/5 flex items-center ${collapsed ? 'justify-center' : 'justify-between'}`}>
-            <div className={`flex items-center text-white font-bold ${collapsed ? 'justify-center' : 'gap-3'}`}>
-              <div className="w-9 h-9 rounded-2xl flex items-center justify-center text-white text-sm bh-btn-primary">B</div>
-              {!collapsed && (
-                <div className="flex flex-col leading-none">
-                  <span>Booth Hunter</span>
-                </div>
-              )}
+      {isOpen && <div className="bh-sidebar-backdrop" onClick={onClose} />}
+
+      <aside className={`bh-sidebar ${isOpen ? 'is-open' : ''}`} aria-label={t("History")}>
+        <div className="bh-brand">
+          <div className="bh-brand-mark">
+            <img src="/icon/icon-face-128.png" alt="" />
+          </div>
+          {!collapsed && (
+            <div className="bh-brand-text">
+              <b>Booth Hunter</b>
+              <span>by Oniya</span>
             </div>
-            <button onClick={onClose} className="md:hidden text-zinc-400">
-              <X size={20} />
-            </button>
-          </div>
+          )}
+          <button
+            type="button"
+            onClick={onClose}
+            className="bh-brand-close"
+            aria-label="Close sidebar"
+          >
+            <X size={18} />
+          </button>
+        </div>
 
-          <div className="flex-none p-4">
-            <button
-              onClick={() => { onNewChat(); if(window.innerWidth < 768) onClose(); }}
-              className={`w-full text-white flex items-center ${collapsed ? 'justify-center h-11 px-0' : 'gap-2 px-4 py-3'} rounded-2xl transition-all font-medium bh-btn-secondary`}
-              aria-label={t("NewChat")}
-              title={t("NewChat")}
-            >
-              <Plus size={18} />
-              {!collapsed && <span>{t("NewChat")}</span>}
-            </button>
-          </div>
+        <div className="bh-new-chat-wrap">
+          <button
+            type="button"
+            onClick={() => { onNewChat(); if (window.innerWidth < 860) onClose(); }}
+            className="bh-new-chat"
+            aria-label={t("NewChat")}
+            title={t("NewChat")}
+          >
+            <Plus size={16} />
+            {!collapsed && <span>{t("NewChat")}</span>}
+          </button>
+        </div>
 
-          <div className={`flex-grow overflow-y-auto min-h-0 ${collapsed ? 'px-2' : 'px-4'} space-y-1`}>
-            {!collapsed && (
-              <h3 className="px-4 text-[10px] font-bold text-zinc-500 uppercase tracking-[0.2em] mb-4 mt-6">{t("History")}</h3>
-            )}
-            {!user ? (
-               <div className="px-4 text-sm text-zinc-500 py-4 text-center italic">
-                 {t("LoginToSave")}
-               </div>
-            ) : sessionsLoading ? (
-               <div className={`${collapsed ? 'px-0' : 'px-4'} space-y-2 pb-4`}>
-                 {Array.from({ length: 6 }).map((_, i) => (
-                   <div key={i} className="bh-skeleton" style={{ height: 44 }} />
-                 ))}
-               </div>
-            ) : sessions.length === 0 ? (
-               <div className="px-4 text-sm text-zinc-500 py-4 text-center italic">
-                 {t("NoHistory")}
-               </div>
-            ) : (
-              sessions.map((session, i) => (
-                <div
-                  key={session.id}
-                  className={`group flex items-center gap-1 w-full ${reducedMotion ? '' : 'bh-anim-fade-left'}`}
-                  style={getStaggerStyle(i, !reducedMotion, 28, 220)}
+        <div className="bh-side-list">
+          {!collapsed && <div className="bh-side-label">{t("History")}</div>}
+
+          {!user ? (
+            <div className="bh-side-empty">{t("LoginToSave")}</div>
+          ) : sessionsLoading ? (
+            <div style={{ display: 'grid', gap: 8, paddingBottom: 12 }}>
+              {Array.from({ length: 6 }).map((_, i) => (
+                <div key={i} className="bh-skeleton" style={{ height: 42 }} />
+              ))}
+            </div>
+          ) : sessions.length === 0 ? (
+            <div className="bh-side-empty">{t("NoHistory")}</div>
+          ) : (
+            sessions.map((session, i) => (
+              <div
+                key={session.id}
+                className={`bh-session-wrap ${reducedMotion ? '' : 'bh-anim-fade-left'}`}
+                style={getStaggerStyle(i, !reducedMotion, 28, 220)}
+              >
+                <button
+                  type="button"
+                  onClick={() => { onSelectSession(session.id); if (window.innerWidth < 860) onClose(); }}
+                  title={session.title || t("UntitledChat")}
+                  className={`bh-session ${currentSessionId === session.id ? 'is-active' : ''}`}
                 >
+                  <MessageSquare size={14} className="bh-session-icon" />
+                  <span className="bh-session-title">{session.title || t("UntitledChat")}</span>
+                </button>
+                {!collapsed && (
                   <button
-                    onClick={() => { onSelectSession(session.id); if(window.innerWidth < 768) onClose(); }}
-                    title={session.title || t("UntitledChat")}
-                    className={`flex-grow min-w-0 ${collapsed ? 'h-11 px-0 justify-center text-center' : 'px-4 py-3 text-left'} rounded-2xl text-sm flex items-center ${collapsed ? '' : 'gap-3'} transition-all ${
-                      currentSessionId === session.id 
-                        ? "bg-[#fc4d50]/10 text-[#fc4d50] border border-[#fc4d50]/20" 
-                        : "text-zinc-400 hover:bg-zinc-800/50 hover:text-zinc-200"
-                    }`}
+                    type="button"
+                    onClick={(e) => { e.stopPropagation(); onDeleteSession(session.id); }}
+                    className="bh-session-del"
+                    title={t("DeleteChat")}
+                    aria-label={t("DeleteChat")}
                   >
-                    <MessageSquare size={16} className="flex-shrink-0" />
-                    {!collapsed && (
-                      <span className="truncate min-w-0 text-left">
-                        {session.title || t("UntitledChat")}
-                      </span>
-                    )}
+                    <Trash2 size={13} />
                   </button>
-                  {!collapsed && (
-                    <button
-                      onClick={(e) => { e.stopPropagation(); onDeleteSession(session.id); }}
-                      className="p-2 text-zinc-600 hover:text-[#ff3d7f] hover:bg-zinc-800 rounded-lg transition-colors opacity-0 group-hover:opacity-100"
-                      title={t("DeleteChat")}
-                      aria-label={t("DeleteChat")}
-                    >
-                      <Trash2 size={14} />
-                    </button>
-                  )}
-                </div>
-              ))
-            )}
-          </div>
+                )}
+              </div>
+            ))
+          )}
+        </div>
 
-          <div className="flex-none p-4 border-t border-zinc-800">
-            {user ? (
-              collapsed ? (
-                <div className="flex items-center justify-center">
-                  <div className="w-11 h-11 rounded-2xl bg-white/10 flex items-center justify-center text-zinc-300">
-                    <UserCircle size={20} />
+        <div className="bh-account">
+          {user ? (
+            <>
+              <div className="bh-account-row">
+                <div className="bh-account-avatar" aria-hidden="true">{initial}</div>
+                {!collapsed && (
+                  <div className="bh-account-id">
+                    <b>{name}</b>
+                    <span>{user.email}</span>
                   </div>
-                </div>
-              ) : (
-                <div className="flex items-center justify-between">
-                   <div className="flex items-center gap-2 overflow-hidden">
-                      <div className="w-8 h-8 rounded-full bg-zinc-800 flex items-center justify-center text-zinc-400">
-                        <UserCircle size={20} />
-                      </div>
-                      <div className="flex flex-col truncate">
-                        <span className="text-sm text-white truncate font-medium">{user.email?.split('@')[0]}</span>
-                        <span className="text-[10px] text-zinc-500 truncate">{user.email}</span>
-                        <span className="text-[10px] text-zinc-600 truncate mt-0.5">
-                          {t("DailyTurns")} {totalTurnCount ?? '—'} / {formatLimit(totalTurnLimit)}
-                        </span>
-                      </div>
-                   </div>
-                   <button 
+                )}
+                <div className="bh-account-actions">
+                  <button
+                    type="button"
                     onClick={async () => { await supabase.auth.signOut(); }}
-                    className="text-zinc-500 hover:text-white p-2"
+                    className="bh-icon-btn"
                     title={t("Logout")}
                     aria-label={t("Logout")}
-                   >
-                     <LogOut size={18} />
-                   </button>
+                  >
+                    <LogOut size={15} />
+                  </button>
                 </div>
-              )
-            ) : (
-              <div className="flex flex-col gap-3">
-                <button
-                  onClick={onOpenAuth}
-                  className={`w-full flex items-center justify-center ${collapsed ? '' : 'gap-2'} text-zinc-300 hover:text-white py-2 rounded-lg hover:bg-zinc-800 transition-colors text-sm font-medium`}
-                  aria-label={t("LoginRegister")}
-                >
-                  <UserCircle size={18} />
-                  {!collapsed && <span>{t("LoginRegister")}</span>}
-                </button>
               </div>
-            )}
-          </div>
+              {!collapsed && (
+                <>
+                  <div className="bh-account-meta">
+                    <span>{t("DailyTurns")}</span>
+                    <span><em>{totalTurnCount ?? '—'}</em> / {formatLimit(totalTurnLimit)}</span>
+                  </div>
+                  <div className="bh-meter" aria-hidden="true"><i style={{ width: `${turnPct}%` }} /></div>
+                </>
+              )}
+            </>
+          ) : (
+            <button
+              type="button"
+              onClick={onOpenAuth}
+              className="bh-login"
+              aria-label={t("LoginRegister")}
+            >
+              <UserCircle size={17} />
+              {!collapsed && <span>{t("LoginRegister")}</span>}
+            </button>
+          )}
         </div>
-        </div>
-      </div>
+      </aside>
     </>
   );
 };
 
-// High Performance Draggable Container (Memoized + RAF)
-const DraggableContainer = React.memo(({ children }: { children: React.ReactNode }) => {
-  const scrollContainerRef = useRef<HTMLDivElement>(null);
-  const isDown = useRef(false);
-  const startX = useRef(0);
-  const scrollLeft = useRef(0);
-  const rafId = useRef<number | null>(null);
-
-  const onMouseDown = (e: React.MouseEvent) => {
-    if (!scrollContainerRef.current) return;
-    isDown.current = true;
-    scrollContainerRef.current.style.cursor = 'grabbing';
-    scrollContainerRef.current.style.userSelect = 'none';
-    scrollContainerRef.current.style.scrollBehavior = 'auto'; 
-    startX.current = e.pageX - scrollContainerRef.current.offsetLeft;
-    scrollLeft.current = scrollContainerRef.current.scrollLeft;
-  };
-
-  const onMouseLeave = () => { stopDragging(); };
-  const onMouseUp = () => { stopDragging(); };
-
-  const stopDragging = () => {
-    if (!scrollContainerRef.current) return;
-    isDown.current = false;
-    scrollContainerRef.current.style.cursor = 'grab';
-    scrollContainerRef.current.style.removeProperty('user-select');
-    scrollContainerRef.current.style.removeProperty('scroll-behavior');
-    if (rafId.current) cancelAnimationFrame(rafId.current);
-  };
-
-  const onMouseMove = (e: React.MouseEvent) => {
-    if (!isDown.current || !scrollContainerRef.current) return;
-    e.preventDefault();
-    
-    // Use requestAnimationFrame for smoother updates
-    if (rafId.current) cancelAnimationFrame(rafId.current);
-    
-    const x = e.pageX - scrollContainerRef.current.offsetLeft;
-    const walk = (x - startX.current) * 1.5; // Adjusted sensitivity
-    
-    rafId.current = requestAnimationFrame(() => {
-        if(scrollContainerRef.current) {
-            scrollContainerRef.current.scrollLeft = scrollLeft.current - walk;
-        }
-    });
-  };
-
-  return (
-    <div 
-      ref={scrollContainerRef}
-      className="mt-6 w-full overflow-x-auto pb-6 flex gap-5 cursor-grab"
-      onMouseDown={onMouseDown}
-      onMouseLeave={onMouseLeave}
-      onMouseUp={onMouseUp}
-      onMouseMove={onMouseMove}
-    >
-      {children}
-    </div>
-  );
-});
+type CardAccent = 'orange' | 'blue' | 'mint';
 
 const AssetCard = React.memo(({
   asset,
-  className,
-  maxTags = 3,
-  imageHeightClassName,
+  accent = 'orange',
 }: {
   asset: AssetResult;
-  className?: string;
-  maxTags?: number;
-  imageHeightClassName?: string;
+  accent?: CardAccent;
 }) => {
   const { t } = useTranslation();
   const [imgError, setImgError] = useState(false);
-
-  // Strict black + pink theme: avoid dynamic multi-color gradients.
-  const placeholderGradient =
-    "linear-gradient(135deg, rgba(252, 77, 80, 0.18), rgba(255, 61, 127, 0.10))";
+  const kind = (asset.tags && asset.tags[0]) || 'Booth';
+  const glyph = (asset.title || '?').trim().slice(0, 1);
 
   return (
-    <div className={`group relative bh-card overflow-hidden transition-all duration-300 flex flex-col ${className ?? 'w-[300px] flex-shrink-0'}`}>
-      <div className={`${imageHeightClassName ?? 'h-56'} w-full relative overflow-hidden bg-zinc-900/60 border-b border-white/5`}>
+    <article className="bh-asset-card" data-accent={accent}>
+      <a
+        className="bh-asset-art"
+        href={asset.url}
+        target="_blank"
+        rel="noopener noreferrer"
+        aria-label={asset.title}
+      >
+        <span className="bh-asset-glyph" aria-hidden="true">{glyph}</span>
         {asset.imageUrl && !imgError ? (
-          <img 
-            src={asset.imageUrl} 
-            alt={asset.title} 
-            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
-            onError={() => setImgError(true)}
+          <img
+            src={asset.imageUrl}
+            alt={asset.title}
             loading="lazy"
+            onError={() => setImgError(true)}
           />
         ) : (
-          <div 
-            className="w-full h-full flex flex-col items-center justify-center p-6 text-center"
-            style={{ background: placeholderGradient }}
-          >
-            <ShoppingBag size={40} className="mb-4 text-white/40" />
-            <span className="text-sm text-zinc-300 font-medium bh-clamp-3 px-4 leading-relaxed">{asset.title}</span>
-          </div>
+          <span className="bh-asset-fallback"><ShoppingBag size={34} /></span>
         )}
-        <div className="absolute top-3 right-3 text-white text-sm font-bold px-2.5 py-1 bh-badge">
-          {asset.price}
-        </div>
-      </div>
+        <span className="bh-asset-kind">{kind}</span>
+      </a>
 
-      <div className="p-5 flex flex-col flex-grow">
-        <div className="flex justify-between items-start mb-3 min-h-[3rem]">
-          <h3 className="font-bold text-base text-white leading-snug bh-clamp-2 group-hover:text-[#fc4d50] transition-colors">
-            {asset.title}
-          </h3>
+      <div className="bh-asset-info">
+        <h3 className="bh-asset-title">{asset.title}</h3>
+        <div className="bh-asset-shop">
+          <ShoppingBag size={10} />
+          <span>{asset.shopName}</span>
         </div>
-        
-        <p className="text-sm text-zinc-400 mb-4 bh-clamp-2 flex-grow leading-relaxed">
-          {asset.description || asset.shopName}
-        </p>
-
-        <div className="flex flex-wrap gap-2 mb-4 h-6 overflow-hidden">
-          {asset.tags && asset.tags.slice(0, maxTags).map((tag, i) => (
-            <span key={i} className="text-[10px] px-2 py-0.5 bh-chip">
-              {tag}
-            </span>
+        <div className="bh-asset-chips">
+          {(asset.tags || []).slice(0, 2).map((tag, i) => (
+            <span key={i} className={`bh-chip ${i === 0 ? 'is-blue' : ''}`}>{tag}</span>
           ))}
         </div>
-
-        <div className="mt-auto pt-4 border-t border-[#27272a] flex justify-between items-center">
-             <div className="flex items-center gap-1.5 max-w-[60%]">
-               <div className="w-5 h-5 rounded-full bg-zinc-800 flex items-center justify-center text-zinc-500">
-                 <ShoppingBag size={10} />
-               </div>
-               <span className="text-xs text-zinc-400 truncate">{asset.shopName}</span>
-             </div>
-             <a 
-              href={asset.url} 
-              target="_blank" 
-              rel="noopener noreferrer"
-              className="flex items-center gap-1.5 text-xs font-bold text-white px-4 py-2 rounded-xl bh-btn-primary"
-            >
-              {t("AssetDetails")}
-              <ExternalLink size={12} />
-            </a>
-        </div>
       </div>
-    </div>
+
+      <div className="bh-asset-stub">
+        <div className="bh-price"><b>{asset.price}</b></div>
+        <a
+          className="bh-open"
+          href={asset.url}
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          <span>{t("AssetDetails")}</span>
+          <ExternalLink size={11} />
+        </a>
+      </div>
+    </article>
   );
 });
 
-const AssetCardSkeleton = React.memo(({
-  className,
-  imageHeightClassName,
-}: {
-  className?: string;
-  imageHeightClassName?: string;
-}) => {
+const AssetCardSkeleton = React.memo(() => {
   return (
-    <div className={`bh-card overflow-hidden flex flex-col ${className ?? 'w-[300px] flex-shrink-0'}`}>
-      <div className={`${imageHeightClassName ?? 'h-56'} w-full bh-skeleton`} />
-      <div className="p-5 space-y-3">
-        <div className="bh-skeleton" style={{ height: 16, width: '86%', borderRadius: 10 }} />
-        <div className="bh-skeleton" style={{ height: 12, width: '70%', borderRadius: 10 }} />
-        <div className="flex gap-2">
-          <div className="bh-skeleton" style={{ height: 14, width: 56, borderRadius: 999 }} />
-          <div className="bh-skeleton" style={{ height: 14, width: 44, borderRadius: 999 }} />
-          <div className="bh-skeleton" style={{ height: 14, width: 64, borderRadius: 999 }} />
-        </div>
-        <div className="bh-skeleton" style={{ height: 34, width: '100%', borderRadius: 14 }} />
+    <div className="bh-asset-skeleton" aria-hidden="true">
+      <div className="bh-skel-art bh-shimmer" />
+      <div className="bh-skel-body">
+        <div className="bh-skel-line bh-shimmer" style={{ width: '82%' }} />
+        <div className="bh-skel-line bh-shimmer" style={{ width: '56%' }} />
+        <div className="bh-skel-line bh-shimmer" style={{ width: '40%' }} />
       </div>
     </div>
   );
@@ -1785,9 +1681,10 @@ function extractStreamingItems(text: string): AssetResult[] | undefined {
   return items.length ? items : undefined;
 }
 
-const ChatMessageBubble = React.memo(({ message, largeLayout }: { message: Message; largeLayout: boolean }) => {
+const ChatMessageBubble = React.memo(({ message }: { message: Message }) => {
   const { t } = useTranslation();
   const isUser = message.role === 'user';
+  const [expanded, setExpanded] = React.useState(false);
 
   // 流式过程中即时解析已完整的商品（message.items 要等流结束才会由后端结果写入）
   const streamedItems = React.useMemo(
@@ -1796,7 +1693,14 @@ const ChatMessageBubble = React.memo(({ message, largeLayout }: { message: Messa
   );
   const items = message.items && message.items.length > 0 ? message.items : (streamedItems || []);
 
-  // Filter out JSON code blocks from display text
+  // The reply starts with "当前关键词…；当前页码…" for follow-up context.
+  // Show it as a compact trace instead of a raw text line.
+  const searchMeta = React.useMemo(() => {
+    const m = (message.text || '').match(/当前关键词[：:]\s*([^\n；;]+)[；;]\s*当前页码[：:]\s*(\d+)/);
+    return m ? { keyword: m[1].trim(), page: m[2] } : null;
+  }, [message.text]);
+
+  // Filter out JSON code blocks and the keyword/page line from display text
   const displayText = React.useMemo(() => {
     let text = message.text;
     // Remove completed JSON blocks
@@ -1805,154 +1709,133 @@ const ChatMessageBubble = React.memo(({ message, largeLayout }: { message: Messa
     text = text.replace(/```json[\s\S]*/gi, '');
     // Remove a partially streamed opening fence (``` / ```j / ```js ...) so no code flashes
     if (message.isStreaming) text = text.replace(/```(?:j(?:s(?:o(?:n)?)?)?)?\s*$/i, '');
+    // Hide the keyword/page metadata line (rendered as a trace instead)
+    text = text.replace(/^\s*当前关键词[：:][^\n]*?当前页码[：:]\s*\d+\s*[。.]?\s*\n?/m, '');
     return text.trim();
   }, [message.text, message.isStreaming]);
 
-  return (
-    <div className={`flex w-full mb-8 ${isUser ? 'justify-end' : 'justify-start'}`}>
-      <div className={`flex flex-col max-w-[95%] md:max-w-[85%] ${isUser ? 'items-end' : 'items-start'}`}>
-        
-        {/* Avatar & Name */}
-        <div className={`flex items-center gap-3 mb-2 ${isUser ? 'flex-row-reverse' : 'flex-row'}`}>
-          <div className={`w-9 h-9 rounded-2xl flex items-center justify-center shadow-lg border border-white/5 ${isUser ? 'bg-white/10' : 'bh-avatar-accent'}`}>
-            {isUser ? <User size={18} /> : <Bot size={18} />}
-          </div>
-          <span className="text-sm font-medium text-zinc-400">{isUser ? t("You") : t("Lili")}</span>
-        </div>
+  const canCollapse = !isUser && items.length > 0 && displayText.length > 240;
+  const accents: CardAccent[] = ['orange', 'blue', 'mint'];
 
-        {/* Bubble Content with Markdown */}
-        <div className={`px-6 py-4 rounded-3xl shadow-md ${
-          isUser 
-            ? 'text-zinc-100 rounded-tr-sm bh-bubble-user' 
-            : 'text-zinc-200 rounded-tl-sm bh-bubble-model'
-        }`}>
-          {message.image && (
-            <img src={message.image} alt="Upload" className="max-h-64 rounded-xl mb-4 border border-zinc-700" />
-          )}
-          
-          {/* Tool Call Indicator */}
+  return (
+    <div className="bh-chat-col">
+      <div className={`bh-msg ${isUser ? 'is-user' : ''}`}>
+        {!isUser && (
+          <div className="bh-msg-avatar">
+            <img src="/icon/icon-face-128.png" alt="" />
+          </div>
+        )}
+
+        <div className="bh-msg-body">
+          <div className="bh-msg-who">
+            <b>{isUser ? t("You") : t("Lili")}</b>
+            {message.timestamp ? (
+              <time>
+                {new Date(message.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+              </time>
+            ) : null}
+          </div>
+
           {message.toolCall && (
-            <div className={`mb-3 flex items-center gap-2 text-xs font-mono px-3 py-1.5 rounded-lg border transition-all duration-300 ${
-              message.toolCall.includes(t("Retry")) 
-                ? "text-[#ff3d7f] bg-[#ff3d7f]/10 border-[#ff3d7f]/25 animate-pulse" 
-                : "text-[#fc4d50]/90 bg-[#fc4d50]/10 border-[#fc4d50]/20"
-            }`}>
-              <Hammer size={12} className={message.toolCall.includes(t("Retry")) ? "animate-spin" : ""} />
+            <div className={`bh-tool-call ${message.toolCall.includes(t("Retry")) ? 'is-retry' : ''}`}>
+              <Hammer size={12} className={message.toolCall.includes(t("Retry")) ? 'animate-spin' : undefined} />
               <span>{t("ToolCall")}: {message.toolCall}</span>
             </div>
           )}
 
-          {/* System Status Indicator */}
           {message.status && (
-            <div className="mb-4 flex items-center gap-3 py-2 px-4 rounded-xl bh-surface bh-anim-fade-left">
-               <div className="relative">
-                  <div className="w-2 h-2 bg-[#fc4d50] rounded-full animate-ping absolute inset-0"></div>
-                  <div className="w-2 h-2 bg-[#fc4d50] rounded-full relative"></div>
-               </div>
-               <span className="text-xs font-medium text-zinc-400 tracking-wide uppercase italic">{message.status}</span>
-               <Loader2 size={12} className="animate-spin text-zinc-600 ml-auto" />
+            <div className="bh-status">
+              <span className="bh-status-dot" aria-hidden="true" />
+              <span>{message.status}</span>
+              <Loader2 size={12} className="animate-spin" style={{ marginLeft: 'auto', color: 'var(--bh-muted)' }} />
             </div>
           )}
 
-          {/* Markdown Rendering */}
-          <div className="markdown-body text-base leading-relaxed">
-            <ReactMarkdown>
-                {displayText}
-            </ReactMarkdown>
-            {message.isStreaming && <span className="inline-block w-2 h-4 ml-1 bg-[#fc4d50] animate-pulse align-middle rounded-sm"></span>}
-          </div>
-
-          {/* Subtle turn meta for assistant replies */}
-          {!isUser && message.turnMeta && (
-            <div className="mt-3 text-[11px] text-zinc-500 font-mono opacity-70 select-none">
-              {t("SessionTurns")} {message.turnMeta.session_turn_count ?? '—'}/{formatLimit(message.turnMeta.session_limit)}
+          {isUser ? (
+            <div className="bh-user-bubble">
+              {message.image && <img src={message.image} alt="Upload" />}
+              <div className="markdown-body">
+                <ReactMarkdown>{displayText}</ReactMarkdown>
+              </div>
             </div>
+          ) : (
+            <>
+              {searchMeta && (
+                <div className="bh-trace">
+                  <span className="bh-trace-step"><i />「{searchMeta.keyword}」</span>
+                  <span className="bh-trace-sep" aria-hidden="true" />
+                  <span className="bh-trace-step is-now"><i />p.{searchMeta.page}</span>
+                </div>
+              )}
+
+              <div className={`bh-prose markdown-body ${canCollapse && !expanded ? 'is-clamped' : ''}`}>
+                <ReactMarkdown>{displayText}</ReactMarkdown>
+                {message.isStreaming && <span className="bh-stream-cursor" />}
+              </div>
+
+              {canCollapse && (
+                <button type="button" className="bh-expand" onClick={() => setExpanded((v) => !v)}>
+                  {expanded ? t("ShowLess") : t("ShowMore")}
+                </button>
+              )}
+
+              {message.turnMeta && (
+                <div className="bh-turn-meta">
+                  {t("SessionTurns")} {message.turnMeta.session_turn_count ?? '—'}/{formatLimit(message.turnMeta.session_limit)}
+                </div>
+              )}
+            </>
           )}
         </div>
-
-        {/* Asset Cards Grid */}
-        {items.length > 0 && (
-          <div className="w-full mt-6 pl-2">
-            {largeLayout ? (
-              // 大屏：最多展示 3 行卡片，剩余内容在该区域内纵向滚动查看
-              <div className="max-h-[1000px] overflow-y-auto pr-2">
-                <div className="grid grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-5">
-                  {items.map((item, idx) => (
-                    <AssetCard
-                      key={item.id || idx}
-                      asset={item}
-                      className="w-full h-[450px]"
-                      imageHeightClassName="h-[300px]"
-                      maxTags={5}
-                    />
-                  ))}
-                </div>
-              </div>
-            ) : (
-              <>
-                <DraggableContainer>
-                  {items.map((item, idx) => (
-                    <AssetCard key={item.id || idx} asset={item} />
-                  ))}
-                </DraggableContainer>
-                <div className="flex items-center justify-center gap-2 text-xs text-zinc-600 mt-3 opacity-60 font-medium">
-                  <MoveHorizontal size={12} />
-                  <span>{t("DragHint")}</span>
-                </div>
-              </>
-            )}
-          </div>
-        )}
-
-        {/* Skeleton preview while streaming JSON */}
-        {items.length === 0 && message.isStreaming && message.isJsonStreaming && (
-          <div className="w-full mt-6 pl-2">
-            {largeLayout ? (
-              <div className="max-h-[1300px] overflow-y-auto pr-2">
-                <div className="grid grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-5">
-                  {Array.from({ length: 8 }).map((_, i) => (
-                    <AssetCardSkeleton
-                      key={i}
-                      className="w-full h-[420px]"
-                      imageHeightClassName="h-[280px]"
-                    />
-                  ))}
-                </div>
-              </div>
-            ) : (
-              <DraggableContainer>
-                {Array.from({ length: 6 }).map((_, i) => (
-                  <AssetCardSkeleton key={i} />
-                ))}
-              </DraggableContainer>
-            )}
-          </div>
-        )}
       </div>
+
+      {!isUser && (items.length > 0 || (message.isStreaming && message.isJsonStreaming)) && (
+        <div className="bh-shelf-wrap">
+          <div className="bh-shelf-head">
+            <h2>{t("Results")}</h2>
+            {message.isStreaming && message.isJsonStreaming ? (
+              <span className="bh-shelf-live">
+                <span className="bh-live-dot" aria-hidden="true" />
+                {t("ConfirmingResults", { count: items.length })}
+              </span>
+            ) : (
+              <span>Booth.pm</span>
+            )}
+          </div>
+          <div className="bh-shelf">
+            {items.map((item, idx) => (
+              <AssetCard
+                key={item.id || idx}
+                asset={item}
+                accent={accents[idx % accents.length]}
+              />
+            ))}
+            {message.isStreaming && message.isJsonStreaming &&
+              Array.from({ length: items.length === 0 ? 4 : 3 }).map((_, i) => (
+                <AssetCardSkeleton key={`sk-${i}`} />
+              ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 });
 
 const MessageSkeletonList = ({ count = 6 }: { count?: number }) => {
   return (
-    <div className="w-full space-y-6">
-      {Array.from({ length: count }).map((_, i) => {
-        const isUser = i % 2 === 0;
-        return (
-          <div key={i} className={`flex w-full ${isUser ? 'justify-end' : 'justify-start'}`}>
-            <div className="max-w-[95%] md:max-w-[85%] w-full">
-              <div className={`flex items-center gap-3 mb-2 ${isUser ? 'flex-row-reverse' : 'flex-row'}`}>
-                <div className="bh-skeleton" style={{ width: 36, height: 36, borderRadius: 16 }} />
-                <div className="bh-skeleton" style={{ width: 120, height: 12, borderRadius: 999 }} />
-              </div>
-              <div
-                className="bh-skeleton bh-skeleton-bubble"
-                style={{ height: 74, width: isUser ? '88%' : '92%', marginLeft: isUser ? 'auto' : undefined }}
-              />
-            </div>
+    <div style={{ display: 'grid', gap: 26 }}>
+      {Array.from({ length: count }).map((_, i) => (
+        <div key={i} className="bh-msg">
+          <div className="bh-msg-avatar">
+            <div className="bh-skeleton" style={{ width: '100%', height: '100%' }} />
           </div>
-        );
-      })}
+          <div className="bh-msg-body">
+            <div className="bh-skeleton" style={{ width: 100, height: 10, marginBottom: 12 }} />
+            <div className="bh-skeleton" style={{ width: '78%', height: 14, marginBottom: 8 }} />
+            <div className="bh-skeleton" style={{ width: '58%', height: 14 }} />
+          </div>
+        </div>
+      ))}
     </div>
   );
 };
@@ -1967,7 +1850,7 @@ const App = () => {
   const [processingTool, setProcessingTool] = useState(false);
   const [imageProcessing, setImageProcessing] = useState(false);
   const reducedMotion = usePrefersReducedMotion();
-  const largeLayout = useMediaQuery('(min-width: 1024px)');
+  const isDesktop = useMediaQuery('(min-width: 861px)');
   const [sessionsLoading, setSessionsLoading] = useState(false);
   const [sessionMessagesLoading, setSessionMessagesLoading] = useState(false);
   const [messageAnimationNonce, setMessageAnimationNonce] = useState(0);
@@ -2415,12 +2298,8 @@ const App = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: reducedMotion ? "auto" : "smooth" });
   }, [messages, loading, processingTool, reducedMotion]);
 
-  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    // reset input value so selecting the same file again triggers onChange
-    e.target.value = "";
-
-    if (!file) return;
+  const processImageFile = async (file: File) => {
+    if (!file || imageProcessing) return;
 
     setImageProcessing(true);
     try {
@@ -2437,6 +2316,32 @@ const App = () => {
       }
     } finally {
       setImageProcessing(false);
+    }
+  };
+
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    // reset input value so selecting the same file again triggers onChange
+    e.target.value = "";
+
+    if (file) await processImageFile(file);
+  };
+
+  // Support pasting a reference image directly into the composer.
+  const handlePaste = (e: React.ClipboardEvent<HTMLInputElement>) => {
+    const items = e.clipboardData?.items;
+    if (!items) return;
+
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i];
+      if (!item.type.startsWith('image/')) continue;
+
+      const file = item.getAsFile();
+      if (!file) continue;
+
+      e.preventDefault();
+      void processImageFile(file);
+      return;
     }
   };
 
@@ -2757,16 +2662,28 @@ const App = () => {
     }
   };
 
+  const currentTitle = currentSessionId
+    ? (sessions.find((s) => s.id === currentSessionId)?.title || t("UntitledChat"))
+    : t("NewChat");
+
+  const toggleSidebar = () => {
+    if (isDesktop) setSidebarCollapsed((v) => !v);
+    else setIsSidebarOpen((v) => !v);
+  };
+
+  const sidebarToggleLabel = isDesktop
+    ? (sidebarCollapsed ? t("ExpandSidebar") : t("CollapseSidebar"))
+    : t("OpenSidebar");
+
   return (
-    <div className="flex h-screen text-zinc-100 font-sans overflow-hidden">
-      
-      <Sidebar 
+    <div className={`bh-app ${sidebarCollapsed && isDesktop ? 'is-collapsed' : ''}`}>
+      <Sidebar
         isOpen={isSidebarOpen}
         onClose={() => setIsSidebarOpen(false)}
         user={user}
         sessions={sessions}
         sessionsLoading={sessionsLoading}
-        collapsed={sidebarCollapsed}
+        collapsed={sidebarCollapsed && isDesktop}
         currentSessionId={currentSessionId}
         onSelectSession={handleSelectSession}
         onNewChat={handleNewChat}
@@ -2777,83 +2694,87 @@ const App = () => {
         reducedMotion={reducedMotion}
       />
 
-      <div className="flex-1 flex flex-col h-full min-w-0">
-        <header className="flex-none px-4 h-[72px] z-10 flex justify-between items-center bh-surface border-b border-white/5">
-          <div className="flex items-center gap-3">
-             <button 
-              onClick={() => {
-                if (window.innerWidth >= 768) setSidebarCollapsed((v) => !v);
-                else setIsSidebarOpen(true);
-              }}
-              className="text-zinc-300 hover:text-white bh-icon-btn p-2"
-              aria-label={window.innerWidth >= 768 ? (sidebarCollapsed ? t("ExpandSidebar") : t("CollapseSidebar")) : t("OpenSidebar")}
-              title={window.innerWidth >= 768 ? (sidebarCollapsed ? t("ExpandSidebar") : t("CollapseSidebar")) : t("OpenSidebar")}
-             >
-               <Menu size={24} />
-             </button>
-             <div className="flex items-center gap-3 md:hidden">
-                <div className="w-9 h-9 rounded-2xl flex items-center justify-center text-white font-bold bh-btn-primary">B</div>
-             </div>
-             <div className="hidden md:block">
-                <h1 className="text-xl font-bold tracking-tight leading-none text-white">Booth Hunter</h1>
-                <p className="text-[10px] text-zinc-400 font-mono tracking-wide mt-0.5">Made by Oniya</p>
-             </div>
-          </div>
+      <div className="bh-main">
+        <header className="bh-topbar">
+          <div className="bh-topbar-inner">
+            <button
+              type="button"
+              onClick={toggleSidebar}
+              className="bh-icon-btn bh-rail-toggle"
+              aria-label={sidebarToggleLabel}
+              title={sidebarToggleLabel}
+            >
+              <PanelLeft size={18} />
+            </button>
 
-          <div className="flex items-center gap-2">
-            {/* Language Switcher */}
-            <div className="relative group mr-2">
-              <button 
-                className="p-2 text-zinc-300 hover:text-white bh-icon-btn flex items-center gap-1.5"
-                aria-label={t("Language")}
-                title={t("Language")}
-              >
-                <Globe size={20} />
-                <span className="text-xs font-bold hidden sm:inline">{i18n.language.split('-')[0].toUpperCase()}</span>
-              </button>
-              <div className="absolute right-0 top-full mt-1 w-32 py-2 bh-surface-strong border border-white/10 rounded-2xl shadow-2xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-50">
-                <button 
-                  onClick={() => i18n.changeLanguage('zh')}
-                  className={`w-full px-4 py-2 text-left text-sm hover:bg-white/5 transition-colors ${i18n.language.startsWith('zh') ? 'text-[#fc4d50] font-bold' : 'text-zinc-300'}`}
-                >
-                  {t("ZH")}
-                </button>
-                <button 
-                  onClick={() => i18n.changeLanguage('en')}
-                  className={`w-full px-4 py-2 text-left text-sm hover:bg-white/5 transition-colors ${i18n.language.startsWith('en') ? 'text-[#fc4d50] font-bold' : 'text-zinc-300'}`}
-                >
-                  {t("EN")}
-                </button>
-                <button 
-                  onClick={() => i18n.changeLanguage('ja')}
-                  className={`w-full px-4 py-2 text-left text-sm hover:bg-white/5 transition-colors ${i18n.language.startsWith('ja') ? 'text-[#fc4d50] font-bold' : 'text-zinc-300'}`}
-                >
-                  {t("JP")}
-                </button>
+            <div className="bh-session-head">
+              <h1>{currentTitle}</h1>
+              <div className="bh-session-sub">
+                <span className="bh-live-dot" aria-hidden="true" />
+                <span>{t("BoothLiveStatus")}</span>
               </div>
             </div>
 
-            {isAdmin && (
-              <button
-                onClick={() => setIsAdminPanelOpen(true)}
-                className="p-2 text-zinc-300 hover:text-white bh-icon-btn"
-                aria-label={t("AdminPanel")}
-                title={t("AdminPanel")}
-              >
-                <Shield size={20} />
-              </button>
-            )}
+            <div className="bh-topbar-right">
+              {/* Language Switcher */}
+              <div className="bh-lang-wrap">
+                <button
+                  className="bh-lang-btn"
+                  aria-label={t("Language")}
+                  title={t("Language")}
+                >
+                  <Globe size={15} />
+                  <span className="bh-lang-code">
+                    {i18n.language.startsWith('zh') ? t('ZH') : i18n.language.startsWith('ja') ? t('JP') : t('EN')}
+                  </span>
+                </button>
+                <div className="bh-lang-menu">
+                  <button
+                    type="button"
+                    onClick={() => i18n.changeLanguage('zh')}
+                    className={i18n.language.startsWith('zh') ? 'is-current' : ''}
+                  >
+                    {t("ZH")}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => i18n.changeLanguage('en')}
+                    className={i18n.language.startsWith('en') ? 'is-current' : ''}
+                  >
+                    {t("EN")}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => i18n.changeLanguage('ja')}
+                    className={i18n.language.startsWith('ja') ? 'is-current' : ''}
+                  >
+                    {t("JP")}
+                  </button>
+                </div>
+              </div>
 
-            <a
-              href="https://github.com/oniyakun/Booth-Hunter"
-              target="_blank"
-              rel="noopener noreferrer"
-              aria-label={t("GithubProject")}
-              title="GitHub"
-              className="p-2 text-zinc-300 hover:text-white bh-icon-btn"
-            >
-              <Github size={20} />
-            </a>
+              {isAdmin && (
+                <button
+                  onClick={() => setIsAdminPanelOpen(true)}
+                  className="bh-icon-btn"
+                  aria-label={t("AdminPanel")}
+                  title={t("AdminPanel")}
+                >
+                  <Shield size={17} />
+                </button>
+              )}
+
+              <a
+                href="https://github.com/oniyakun/Booth-Hunter"
+                target="_blank"
+                rel="noopener noreferrer"
+                aria-label={t("GithubProject")}
+                title="GitHub"
+                className="bh-icon-btn bh-github"
+              >
+                <Github size={17} />
+              </a>
+            </div>
           </div>
         </header>
 
@@ -2863,12 +2784,14 @@ const App = () => {
             scrollContainerRef.current = el;
           }}
           onScroll={() => updateIsAtBottom()}
-          className="flex-grow overflow-y-auto px-4 py-6"
+          className="bh-scroller"
         >
-          <div className="max-w-4xl lg:max-w-6xl 2xl:max-w-7xl mx-auto flex flex-col justify-end min-h-full pb-4">
+          <div className="bh-thread">
             {sessionMessagesLoading ? (
-              <div className={reducedMotion ? '' : 'bh-anim-fade-up'}>
-                <MessageSkeletonList count={6} />
+              <div className="bh-chat-col">
+                <div className={reducedMotion ? '' : 'bh-anim-fade-up'}>
+                  <MessageSkeletonList count={6} />
+                </div>
               </div>
             ) : (
               messages.map((msg, i) => (
@@ -2877,32 +2800,35 @@ const App = () => {
                   className={reducedMotion ? '' : 'bh-anim-fade-up'}
                   style={getStaggerStyle(i, !reducedMotion, 28, 320)}
                 >
-                  <ChatMessageBubble message={msg} largeLayout={largeLayout} />
+                  <ChatMessageBubble message={msg} />
                 </div>
               ))
             )}
 
             {(loading && !messages.find(m => m.isStreaming)) && (
-               <div className="flex w-full mb-6 justify-start animate-pulse">
-                 <div className="flex flex-col items-start max-w-[85%]">
-                   <div className="flex items-center gap-3 mb-2">
-                     <div className="w-9 h-9 rounded-full bg-[#fc4d50] flex items-center justify-center shadow-lg border border-white/5">
-                       <Loader2 size={18} className="animate-spin text-white" />
-                     </div>
-                     <span className="text-sm font-medium text-zinc-400">{t("Thinking")}</span>
-                   </div>
-                 </div>
+              <div className="bh-chat-col">
+                <div className="bh-msg">
+                  <div className="bh-msg-avatar">
+                    <img src="/icon/icon-face-128.png" alt="" />
+                  </div>
+                  <div className="bh-msg-body">
+                    <div className="bh-msg-who"><b>{t("Lili")}</b></div>
+                    <div className="bh-status">
+                      <span className="bh-status-dot" aria-hidden="true" />
+                      <span>{t("Thinking")}</span>
+                      <Loader2 size={12} className="animate-spin" style={{ marginLeft: 'auto', color: 'var(--bh-muted)' }} />
+                    </div>
+                  </div>
+                </div>
               </div>
             )}
-            
+
             {processingTool && (
-               <div className="flex w-full mb-6 justify-start bh-anim-fade-up">
-                 <div className="flex flex-col items-start max-w-[85%]">
-                   <div className="flex items-center gap-2 mb-2 ml-12 text-[#fc4d50]/80 text-xs font-mono">
-                      <Hammer size={12} className="animate-bounce" />
-                      <span>{t("ToolCalling")}</span>
-                   </div>
-                 </div>
+              <div className="bh-chat-col">
+                <div className={`bh-tool-call ${reducedMotion ? '' : 'bh-anim-fade-up'}`} style={{ marginLeft: 42 }}>
+                  <Hammer size={12} className="animate-bounce" />
+                  <span>{t("ToolCalling")}</span>
+                </div>
               </div>
             )}
 
@@ -2910,32 +2836,32 @@ const App = () => {
           </div>
         </main>
 
-        <footer className="flex-none p-4 md:p-6 z-20 bh-surface border-t border-white/5">
-          <div className="max-w-4xl lg:max-w-6xl 2xl:max-w-7xl mx-auto">
+        <footer className="bh-composer-wrap">
+          <div className="bh-composer-inner">
             {image && (
-              <div className="mb-3 flex items-start bh-anim-fade-up">
-                <div className="relative group">
-                  <img src={image} alt="Ref" className="h-20 w-20 rounded-xl object-cover border border-zinc-700 shadow-xl" />
-                  <button 
+              <div className="bh-preview-row bh-anim-fade-up">
+                <div className="bh-preview">
+                  <img src={image} alt="Ref" />
+                  <button
                     onClick={() => setImage(null)}
-                    className="absolute -top-2 -right-2 text-white rounded-full p-1.5 opacity-80 hover:opacity-100 transition-opacity bh-badge"
+                    className="bh-preview-remove"
                     aria-label={t("RemoveImage")}
                   >
-                    <X size={14} />
+                    <X size={9} />
                   </button>
                 </div>
               </div>
             )}
 
-            <form onSubmit={handleSubmit} className="relative flex items-center gap-3">
+            <form onSubmit={handleSubmit} className="bh-composer">
               <button
                 type="button"
                 onClick={() => fileInputRef.current?.click()}
                 disabled={imageProcessing || !canUseApp}
-                className="p-3.5 text-zinc-300 hover:text-white transition-all disabled:opacity-60 disabled:hover:bg-transparent disabled:cursor-not-allowed bh-icon-btn"
-                title="Upload Image"
+                className="bh-attach"
+                title="Upload or paste image"
               >
-                {imageProcessing ? <Loader2 size={22} className="animate-spin" /> : <ImageIcon size={22} />}
+                {imageProcessing ? <Loader2 size={19} className="animate-spin" /> : <ImageIcon size={19} />}
               </button>
               <input
                 ref={fileInputRef}
@@ -2944,35 +2870,30 @@ const App = () => {
                 onChange={handleImageUpload}
                 className="hidden"
               />
-              
-              <div className="flex-grow relative">
-                <input
-                  type="text"
-                  value={input}
-                  onChange={(e) => setInput(e.target.value)}
-                  disabled={!canUseApp}
-                  placeholder={canUseApp ? t("SearchPlaceholder") : (user ? t("VerifyEmail") : t("Loading"))}
-                  className="w-full rounded-2xl px-5 py-4 pr-14 text-base focus:outline-none transition-all placeholder-zinc-500 bh-input"
-                />
-                <button
-                  type={canStop ? "button" : "submit"}
-                  onClick={canStop ? handleStopGenerating : undefined}
-                  disabled={!canUseApp || imageProcessing || (!canStop && (loading || (!input.trim() && !image)))}
-                  className={`absolute right-2 top-1/2 -translate-y-1/2 p-2.5 text-white rounded-xl transition-all ${
-                    canStop
-                      ? 'bg-zinc-800 hover:bg-zinc-700'
-                      : 'bh-btn-primary disabled:opacity-50 disabled:bg-zinc-700'
-                  }`}
-                  aria-label={canStop ? t("Stop") : t("Send")}
-                  title={canStop ? t("Stop") : t("Send")}
-                >
-                  {canStop ? <Pause size={18} /> : <Send size={18} />}
-                </button>
-              </div>
+
+              <input
+                type="text"
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                onPaste={handlePaste}
+                disabled={!canUseApp}
+                placeholder={canUseApp ? t("SearchPlaceholder") : (user ? t("VerifyEmail") : t("Loading"))}
+                className="bh-composer-input"
+              />
+
+              <button
+                type={canStop ? "button" : "submit"}
+                onClick={canStop ? handleStopGenerating : undefined}
+                disabled={!canUseApp || imageProcessing || (!canStop && (loading || (!input.trim() && !image)))}
+                className={`bh-send ${canStop ? 'is-stop' : ''}`}
+                aria-label={canStop ? t("Stop") : t("Send")}
+                title={canStop ? t("Stop") : t("Send")}
+              >
+                {canStop ? <Pause size={17} /> : <Send size={17} />}
+              </button>
             </form>
-            <p className="text-center text-[10px] text-zinc-600 mt-3 font-medium">
-              {t("Disclaimer")}
-            </p>
+
+            <p className="bh-fineprint">{t("Disclaimer")}</p>
           </div>
         </footer>
       </div>
@@ -2989,7 +2910,7 @@ const App = () => {
       {/* Email verification gate: logged in but not verified */}
       {!authLoading && user && !emailVerified && (
         <div className="fixed inset-0 z-[65] flex items-center justify-center bg-black/90 backdrop-blur-md p-4">
-          <div className="bg-[#18181b] border border-zinc-800 rounded-2xl w-full max-w-md p-6 shadow-2xl">
+          <div className="bg-[#17121C] border border-zinc-800 rounded-2xl w-full max-w-md p-6 shadow-2xl">
             <h2 className="text-xl font-bold text-white mb-3">{t("VerifyEmail")}</h2>
             <p className="text-sm text-zinc-400 leading-relaxed mb-5">
               {t("VerifyEmailDesc", { email: user.email })}
