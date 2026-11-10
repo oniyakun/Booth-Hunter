@@ -2283,6 +2283,8 @@ const App = () => {
   const [isAdmin, setIsAdmin] = useState(false);
   const [isAdminPanelOpen, setIsAdminPanelOpen] = useState(false);
   const [announcement, setAnnouncement] = useState<Announcement | null>(null);
+  // 用户关闭公告后数据仍保留，顶栏的小按钮可以随时重新打开。
+  const [isAnnouncementDismissed, setIsAnnouncementDismissed] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -2293,9 +2295,10 @@ const App = () => {
           .select('title,body,publish_at,expires_at,updated_at')
           .maybeSingle();
         if (cancelled || error || !data) return;
-        if (readSeenAnnouncementUpdatedAt() !== data.updated_at) {
-          setAnnouncement(data as Announcement);
+        if (readSeenAnnouncementUpdatedAt() === data.updated_at) {
+          setIsAnnouncementDismissed(true);
         }
+        setAnnouncement(data as Announcement);
       } catch {
         // Announcement is non-critical; ignore fetch failures.
       }
@@ -2377,18 +2380,24 @@ const App = () => {
   // 允许：已验证用户 OR (游客 AND 拿到了指纹)
   const canUseApp = (!!user && emailVerified) || (!user && !!visitorId);
 
+  const isAnnouncementActive =
+    !!announcement &&
+    (!announcement.expires_at || new Date(announcement.expires_at).getTime() > Date.now());
+
   const canShowAnnouncement =
+    !isAnnouncementDismissed &&
     !authLoading &&
     canUseApp &&
     !isAuthOpen &&
     !isAdminPanelOpen &&
-    !!announcement &&
-    (!announcement.expires_at || new Date(announcement.expires_at).getTime() > Date.now());
+    isAnnouncementActive;
 
   const dismissAnnouncement = () => {
     if (announcement) markAnnouncementSeen(announcement.updated_at);
-    setAnnouncement(null);
+    setIsAnnouncementDismissed(true);
   };
+
+  const reopenAnnouncement = () => setIsAnnouncementDismissed(false);
   
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLElement | null>(null);
@@ -3166,6 +3175,18 @@ const App = () => {
             </div>
 
             <div className="bh-topbar-right">
+              {isAnnouncementActive && canUseApp && (
+                <button
+                  type="button"
+                  onClick={reopenAnnouncement}
+                  className="bh-icon-btn"
+                  aria-label={t("Announcement")}
+                  title={t("Announcement")}
+                >
+                  <Megaphone size={16} />
+                </button>
+              )}
+
               {/* Language Switcher */}
               <div className="bh-lang-wrap">
                 <button
