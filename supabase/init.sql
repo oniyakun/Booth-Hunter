@@ -444,6 +444,53 @@ grant execute on function public.consume_guest_turn(text) to anon;
 grant execute on function public.consume_guest_turn(text) to authenticated;
 grant execute on function public.consume_guest_turn(text) to service_role;
 
+-- ============ 4.8) 注册邮箱域名白名单（服务端兜底，需手动启用） ============
+-- 用途：即使有人绕过前端直接调用 Supabase Auth signUp，也只允许以下邮箱域名注册。
+-- 启用方式（二选一）：
+--   1) Dashboard → Authentication → Hooks → Before User Created → 选择该函数；
+--   2) config.toml:
+--      [auth.hook.before_user_created]
+--      enabled = true
+--      uri = "pg-functions://postgres/public/hook_restrict_signup_by_email_domain"
+-- 注意：仅创建函数不会生效，必须在上述位置启用。
+-- 修改允许的域名时，需与前端 ALLOWED_REGISTRATION_DOMAINS 保持同步。
+
+create or replace function public.hook_restrict_signup_by_email_domain(event jsonb)
+returns jsonb
+language plpgsql
+as $$
+declare
+  v_domain text := split_part(lower(coalesce(event->'user'->>'email', '')), '@', 2);
+begin
+  if v_domain not in (
+    -- Google
+    'gmail.com', 'googlemail.com',
+    -- Microsoft
+    'outlook.com', 'hotmail.com', 'live.com', 'msn.com',
+    'outlook.jp', 'hotmail.co.jp', 'live.jp',
+    -- Apple
+    'icloud.com', 'me.com', 'mac.com',
+    -- Tencent
+    'qq.com', 'vip.qq.com', 'foxmail.com',
+    -- NetEase
+    '163.com', '126.com', 'yeah.net', '188.com',
+    'vip.163.com', 'vip.126.com', 'vip.188.com'
+  ) then
+    return jsonb_build_object(
+      'error', jsonb_build_object(
+        'http_code', 400,
+        'message', 'Only Gmail, Outlook/Hotmail, iCloud, QQ/Foxmail, and NetEase (163/126) email addresses are allowed.'
+      )
+    );
+  end if;
+  return '{}'::jsonb;
+end;
+$$;
+
+grant usage on schema public to supabase_auth_admin;
+grant execute on function public.hook_restrict_signup_by_email_domain(jsonb) to supabase_auth_admin;
+revoke execute on function public.hook_restrict_signup_by_email_domain(jsonb) from authenticated, anon, public;
+
 -- ============ 5) RLS ============
 
 alter table public.profiles enable row level security;

@@ -1255,6 +1255,27 @@ const getStaggerStyle = (index: number, enabled: boolean, baseMs: number = 40, m
 
 const SIDEBAR_COLLAPSED_STORAGE_KEY = 'booth_hunter_sidebar_collapsed';
 
+// Registration is restricted to mainstream mailbox providers.
+const ALLOWED_REGISTRATION_DOMAINS = new Set([
+  // Google
+  'gmail.com', 'googlemail.com',
+  // Microsoft
+  'outlook.com', 'hotmail.com', 'live.com', 'msn.com',
+  'outlook.jp', 'hotmail.co.jp', 'live.jp',
+  // Apple
+  'icloud.com', 'me.com', 'mac.com',
+  // Tencent
+  'qq.com', 'vip.qq.com', 'foxmail.com',
+  // NetEase
+  '163.com', '126.com', 'yeah.net', '188.com',
+  'vip.163.com', 'vip.126.com', 'vip.188.com',
+]);
+
+const isAllowedRegistrationEmail = (email: string): boolean => {
+  const domain = email.trim().toLowerCase().split('@').pop() || '';
+  return ALLOWED_REGISTRATION_DOMAINS.has(domain);
+};
+
 // --- Components ---
 
 // Auth Modal Component
@@ -1280,6 +1301,10 @@ const AuthModal = ({ isOpen, onClose, onLogin, canClose = true }: { isOpen: bool
         onLogin();
         onClose();
       } else {
+        if (!isAllowedRegistrationEmail(email)) {
+          setError(t("EmailDomainNotAllowed"));
+          return;
+        }
         const { data, error } = await supabase.auth.signUp({
           email,
           password,
