@@ -7,13 +7,21 @@ export const config = {
 };
 
 
+type ClientItem = {
+  id: string;
+  title?: string;
+  tags?: string[];
+};
+
 type ClientMessage = {
   id?: string;
   role: "user" | "model";
   text?: string;
   image?: string;
-  // 前端会把 items 一起回传（历史消息）
-  items?: AssetResult[];
+  // 前端只回传精简后的商品信息（id/title/tags），用于去重和上下文指代
+  items?: ClientItem[];
+  // 历史消息的图片不会被重复上传，用这个标记让模型知道该条消息曾带图
+  hasImage?: boolean;
 };
 
 type AssetResult = {
@@ -42,7 +50,14 @@ type BoothRawItem = {
 
 type AgentDecision =
   | { action: "reply"; reply_zh: string }
-  | { action: "search"; keyword_ja: string; need_summary_zh: string; page: number }
+  | {
+      action: "search";
+      keyword_ja: string;
+      keywords_ja?: string[];
+      targets_zh?: string[];
+      need_summary_zh: string;
+      page: number;
+    }
   | { action: "select"; selected: BatchPick[]; done?: boolean };
 
 type BatchPick = {
@@ -87,33 +102,23 @@ function normalizeTags(tags: unknown): string[] {
     .slice(0, 10);
 }
 
-function extractUserInstruction(messages: ClientMessage[]): { text: string; hasImage: boolean } {
-  // 取最后一条 user 消息作为当前指令
+function extractUserInstruction(messages: ClientMessage[]): { text: string; image?: string; hasImage: boolean } {
+  // 取最后一条 user 消息作为当前指令；图片也只取这一条，
+  // 避免把历史参考图当作本轮输入重复注入。
   for (let i = messages.length - 1; i >= 0; i--) {
     const m = messages[i];
     if (m?.role !== "user") continue;
-    const text = (m.text || "").trim();
-    const hasImage = !!m.image;
-    if (text || hasImage) {
+    const text = typeof m.text === "string" ? m.text.trim() : "";
+    const image = typeof m.image === "string" ? m.image.trim() || undefined : undefined;
+    if (text || image) {
       return {
         text: text || "请根据我提供的图片风格与需求，在 Booth 上寻找匹配的 VRChat 资产。",
-        hasImage,
+        image,
+        hasImage: !!image,
       };
     }
   }
-  return { text: "请在 Booth 上寻找匹配的 VRChat 资产。", hasImage: false };
-}
-
-function extractLastUserImage(messages: ClientMessage[]): string | undefined {
-  // 取最后一条带 image 的 user 消息（用于多模态）
-  for (let i = messages.length - 1; i >= 0; i--) {
-    const m = messages[i];
-    if (m?.role !== "user") continue;
-    const img = (m.image || "").trim();
-    if (!img) continue;
-    return img;
-  }
-  return undefined;
+  return { text: "请在 Booth 上寻找匹配的 VRChat 资产。", image: undefined, hasImage: false };
 }
 
 function buildRecentConversationForAgent(messages: ClientMessage[], maxTurns: number): string {
@@ -121,33 +126,74 @@ function buildRecentConversationForAgent(messages: ClientMessage[], maxTurns: nu
   const start = Math.max(0, messages.length - Math.max(1, maxTurns));
   const sliced = messages.slice(start);
 
+  // 只给最近两条带商品的 assistant 消息附摘要，控制 token，
+  // 同时让模型理解“刚才那件 / 换成别的”等指代。
+  const briefIdx = new Set<number>();
+  for (let i = sliced.length - 1; i >= 0 && briefIdx.size < 2; i--) {
+    const m = sliced[i];
+    if (m?.role === "model" && Array.isArray(m.items) && m.items.length > 0) briefIdx.add(i);
+  }
+
   return sliced
     .map((m, idx) => {
       const role = m.role === "model" ? "assistant" : "user";
-      const text = (m.text || "").trim();
-      const hasImage = !!m.image;
-      const itemsCount = Array.isArray((m as any)?.items) ? ((m as any).items as any[]).length : 0;
+      const text = typeof m.text === "string" ? m.text.trim() : "";
+      const hasImage = !!m.image || !!m.hasImage;
+      const items = Array.isArray(m.items) ? m.items.filter((it) => !!it && typeof it === "object") : [];
       const meta = [
         hasImage ? "hasImage=1" : "hasImage=0",
-        itemsCount ? `items=${itemsCount}` : "items=0",
+        items.length ? `items=${items.length}` : "items=0",
       ].join(",");
-      return `#${idx + 1} ${role} (${meta})\n${text || (hasImage ? "[image]" : "")}`.trim();
+      const shown = briefIdx.has(idx) && items.length
+        ? `\n[已展示] ${items
+            .slice(0, 12)
+            .map((it) => {
+              const tags = (it.tags || []).slice(0, 3).join("/");
+              return `${it.title || it.id}${tags ? `（${tags}）` : ""}`;
+            })
+            .join("；")}`
+        : "";
+      return `#${idx + 1} ${role} (${meta})\n${text || (hasImage ? "[image]" : "")}${shown}`.trim();
     })
     .join("\n\n");
 }
 
 function compactCandidatesForAgent(items: BoothRawItem[]): any[] {
-  // 控制 token：只给 agent 必要字段。
-  return (items || []).slice(0, 80).map((x) => ({
+  // 控制 token：只给 agent 必要字段，并对长文本做截断。
+  // 多目标检索时一条候选可能来自不同关键词，因此保留顺序、由上游做类目交错合并。
+  return (items || []).slice(0, 100).map((x) => ({
     id: x.id,
     title: x.title,
     shopName: x.shopName,
     price: x.price,
     url: x.url,
-    description: x.description,
-    tags: x.tags,
-    variations: x.variations, // 传入规格信息，包含适配模型名称等关键决策依据
+    description: (x.description || "").slice(0, 240),
+    tags: (x.tags || []).slice(0, 10),
+    variations: x.variations ? x.variations.slice(0, 10) : x.variations, // 传入规格信息，包含适配模型名称等关键决策依据
   }));
+}
+
+function mergeSearchCandidates(groups: BoothRawItem[][], perGroupCap: number): BoothRawItem[] {
+  // 多个关键词的候选按「轮转」交错合并：保证每个目标类目都有候选进入挑选视野，
+  // 避免第一个关键词的结果占满候选上限、后面类目被挤掉。
+  const lists = (groups || []).map((g) => (g || []).slice(0, perGroupCap));
+  const seen = new Set<string>();
+  const out: BoothRawItem[] = [];
+  const max = lists.reduce((m, l) => Math.max(m, l.length), 0);
+  for (let i = 0; i < max; i++) {
+    for (const list of lists) {
+      const item = list[i];
+      if (!item || seen.has(item.id)) continue;
+      seen.add(item.id);
+      out.push(item);
+    }
+  }
+  return out;
+}
+
+function decisionKeywords(d: Extract<AgentDecision, { action: "search" }>): string[] {
+  const raw = d.keywords_ja && d.keywords_ja.length ? d.keywords_ja : [d.keyword_ja];
+  return Array.from(new Set(raw.map((k) => (k || "").trim()).filter(Boolean))).slice(0, 10);
 }
 
 async function decideNextStepEndToEnd(params: {
@@ -156,7 +202,10 @@ async function decideNextStepEndToEnd(params: {
   messages: ClientMessage[];
   candidates?: BoothRawItem[];
   candidatesKeywordJa?: string;
+  candidatesKeywords?: string[];
+  candidatesTargets?: string[];
   candidatesPage?: number;
+  picked?: { id: string; title: string; tags: string[]; description?: string }[];
   triedKeywords: string[];
   excludeIds: Set<string>;
   pickedIds: Set<string>;
@@ -171,7 +220,10 @@ async function decideNextStepEndToEnd(params: {
     messages,
     candidates,
     candidatesKeywordJa,
+    candidatesKeywords,
+    candidatesTargets,
     candidatesPage,
+    picked,
     triedKeywords,
     excludeIds,
     pickedIds,
@@ -181,8 +233,7 @@ async function decideNextStepEndToEnd(params: {
     language = "zh",
   } = params;
 
-  const { text: userInstruction, hasImage } = extractUserInstruction(messages);
-  const lastUserImage = extractLastUserImage(messages);
+  const { text: userInstruction, image: currentUserImage, hasImage } = extractUserInstruction(messages);
   const hint = extractLastKeywordAndPageHint(messages);
   const conversation = buildRecentConversationForAgent(messages, 18);
 
@@ -197,15 +248,25 @@ async function decideNextStepEndToEnd(params: {
       "\n- action=reply：直接回复（闲聊/感谢/问怎么用/非找商品）。回复时请保持璃璃可爱的语气。",
       "\n- action=search：生成用于 Booth 搜索的日文关键词与页码，并给出需求摘要。",
       "\n- action=select：当提供了 candidates 时，从 candidates 中挑选商品。",
+      "\n\n组合/多目标需求（适用于任何领域）：",
+      "\n- 当用户一次需要多个互补的不同目标时（例如一套穿搭的多个部位、一个房间的多件家具、某个作品的多个部件、成套的道具或装饰等），不要只用一个关键词硬搜。要先把需求拆成 2–10 个独立目标（用户提到的每个部分都算一个目标），并为每个目标各写一个日文搜索关键词。超过 10 个时把相近目标合并，不要静默丢弃。",
+      "\n- 拆解结果放进 keywords_ja（按顺序），并在 targets_zh 中用用户的语言按相同顺序写每个目标的名称；两者长度必须一致。",
+      "\n- 每个关键词只聚焦一个目标，不同关键词之间不要重复；不要在一个关键词里堆叠多个目标。",
+      "\n- 例：用户说「白毛猫耳水手服搭配」→ keywords_ja:[\"セーラー服 衣装\",\"ショートパンツ\",\"ボブ 髪型\",\"メイク テクスチャ\"]，targets_zh:[\"衣服\",\"裤子\",\"头发\",\"妆容\"]。这只是格式示例，目标由用户的实际需求决定，不要套用示例内容。",
+      "\n- 只涉及单一目标的请求，用一个关键词即可（此时 targets_zh 可省略）。",
+      "\n- 用户明确提到的每个部分都要覆盖；拿不准时宁可多拆一个相关目标，也不要漏掉用户提到的部分。",
       "\n\n重要规则：",
       "\n1) 输出必须是严格 JSON（不要 Markdown，不要解释）。",
-      "\n2) keyword_ja 必须是日文（可包含空格）；page 为正整数。",
+      "\n2) keyword_ja / keywords_ja 必须是日文（可包含空格）；page 为正整数。",
       "\n3) 若用户在续聊（例如下一页/更多/换关键词），要结合 hint/上下文理解。",
       "\n4) select 时只能从 candidates 里选，且不要选 exclude_ids/picked_ids；最多选择 max_pick 个。",
+      "\n4.1) 若 candidates_info 中存在 targets_zh（多目标），selected 要尽量覆盖每个目标：每个目标至少 1 件（前提是候选里有合适的）；请在 description_zh 开头标明它对应的目标，例如「上衣｜…」。",
+      "\n4.2) picked_items 是已经选过的商品，避免重复挑选。",
+      "\n4.3) done 的含义：单目标=已选够合适的商品；多目标=每个目标都至少选了 1 件，或确认该目标没有合适结果。未满足时 done 必须为 false。",
       "\n5) 若不确定，优先 search（不要错过用户检索意图）。",
       "\n\n输出格式三选一：",
       "\n- {\"action\":\"reply\",\"reply_zh\":\"...\"}",
-      "\n- {\"action\":\"search\",\"keyword_ja\":\"...\",\"need_summary_zh\":\"...\",\"page\":1}",
+      "\n- {\"action\":\"search\",\"keyword_ja\":\"...\",\"keywords_ja\":[\"...\",\"...\"],\"targets_zh\":[\"...\",\"...\"],\"need_summary_zh\":\"...\",\"page\":1}",
       "\n- {\"action\":\"select\",\"selected\":[{\"id\":\"...\",\"description_zh\":\"...\",\"tags\":[\"...\"],\"reason_zh\":\"...\"}],\"done\":true}",
     ].join(""),
   };
@@ -213,6 +274,8 @@ async function decideNextStepEndToEnd(params: {
   const candidates_info = candidates
     ? {
         keyword_ja: candidatesKeywordJa,
+        keywords_ja: candidatesKeywords && candidatesKeywords.length > 1 ? candidatesKeywords : undefined,
+        targets_zh: candidatesTargets && candidatesTargets.length > 1 ? candidatesTargets : undefined,
         page: candidatesPage,
         candidates: compactCandidatesForAgent(candidates),
       }
@@ -228,6 +291,12 @@ async function decideNextStepEndToEnd(params: {
       exclude_ids: Array.from(excludeIds).slice(0, 200),
       picked_ids: Array.from(pickedIds).slice(0, 200),
       picked_count: pickedIds.size,
+      picked_items: (picked || []).slice(-15).map((p) => ({
+        id: p.id,
+        title: p.title,
+        tags: p.tags,
+        summary: (p.description || "").slice(0, 120),
+      })),
       need_min: needMin,
       max_pick: maxPick,
       candidates_info,
@@ -238,12 +307,12 @@ async function decideNextStepEndToEnd(params: {
 
   // 关键修复：之前只传了 has_image=true，但没有把图片内容传给模型，模型当然“看不到图片”。
   // 这里在最后一条 user 消息包含 image 时，使用 OpenAI 兼容的多模态 content 格式传入。
-  const user: any = lastUserImage
+  const user: any = currentUserImage
     ? {
         role: "user",
         content: [
           { type: "text", text: userPayloadText },
-          { type: "image_url", image_url: { url: lastUserImage } },
+          { type: "image_url", image_url: { url: currentUserImage } },
         ],
       }
     : {
@@ -335,9 +404,26 @@ async function decideNextStepEndToEnd(params: {
   const keyword_ja = typeof parsed?.keyword_ja === "string" ? parsed.keyword_ja.trim() : "";
   const need_summary_zh = typeof parsed?.need_summary_zh === "string" ? parsed.need_summary_zh.trim() : "";
   const page = Number.isFinite(parsed?.page) ? Math.max(1, Math.trunc(parsed.page)) : 1;
+
+  // 多目标：keywords_ja + targets_zh（按顺序一一对应），最多 10 个。
+  const rawKeywords: unknown[] = Array.isArray(parsed?.keywords_ja) ? parsed.keywords_ja : [];
+  const keywords: string[] = rawKeywords
+    .map((k) => (typeof k === "string" ? k.trim() : ""))
+    .filter((k) => !!k);
+  if (keyword_ja && !keywords.includes(keyword_ja)) keywords.unshift(keyword_ja);
+  const uniqueKeywords: string[] = Array.from(new Set(keywords)).slice(0, 10);
+
+  const rawTargets: unknown[] = Array.isArray(parsed?.targets_zh) ? parsed.targets_zh : [];
+  const targets: string[] = rawTargets
+    .map((x) => (typeof x === "string" ? x.trim() : ""))
+    .filter((x) => !!x)
+    .slice(0, uniqueKeywords.length);
+
   return {
     action: "search",
-    keyword_ja: keyword_ja || hint.keywordJa || userInstruction.slice(0, 24),
+    keyword_ja: uniqueKeywords[0] || hint.keywordJa || userInstruction.slice(0, 24),
+    keywords_ja: uniqueKeywords.length ? uniqueKeywords : undefined,
+    targets_zh: targets.length > 1 ? targets : undefined,
     need_summary_zh: need_summary_zh || "用户希望找到匹配条件的 VRChat 资产。",
     page,
   };
@@ -346,7 +432,7 @@ async function decideNextStepEndToEnd(params: {
 function collectPreviouslyShownIds(messages: ClientMessage[]): Set<string> {
   const ids = new Set<string>();
   for (const m of messages) {
-    const items = (m as any)?.items as AssetResult[] | undefined;
+    const items = m?.items;
     if (!Array.isArray(items)) continue;
     for (const it of items) {
       if (it?.id) ids.add(String(it.id));
@@ -455,7 +541,7 @@ async function fetchItemDetailsJson(id: string): Promise<{ tags?: string[], desc
   return null;
 }
 
-async function executeSearchBoothPage(keywordJa: string, page: number = 1): Promise<BoothRawItem[]> {
+async function executeSearchBoothPage(keywordJa: string, page: number = 1, maxItems?: number): Promise<BoothRawItem[]> {
   console.log(`[Scraper] Starting direct search for: "${keywordJa}" (Page ${page})`);
   let items: BoothRawItem[] = [];
 
@@ -479,6 +565,8 @@ async function executeSearchBoothPage(keywordJa: string, page: number = 1): Prom
       const htmlContent = await res.text();
       if (htmlContent && htmlContent.length > 500) {
         items = parseBoothSearchPage(htmlContent);
+        // 多目标并行检索时限制每个关键词的候选数，控制请求量与 token。
+        if (maxItems && items.length > maxItems) items = items.slice(0, maxItems);
       }
     }
   } catch (e: any) {
@@ -714,12 +802,14 @@ export default async function handler(req: any) {
         needSummaryZh: string;
         items: AssetResult[];
         keywordJa: string;
+        keywordsJa?: string[];
+        targetsZh?: string[];
         page: number;
         fetchedCount: number;
         hasNextPage: boolean;
       }) => {
         if (stopped) return;
-        const { userInstruction, needSummaryZh, items, keywordJa, page, fetchedCount, hasNextPage } = params;
+        const { userInstruction, needSummaryZh, items, keywordJa, keywordsJa, targetsZh, page, fetchedCount, hasNextPage } = params;
 
         const itemsJson = JSON.stringify(items, null, 2);
         const langName = language?.startsWith("en") ? "English" : language?.startsWith("ja") ? "Japanese" : "Chinese";
@@ -736,11 +826,13 @@ export default async function handler(req: any) {
             "\n  - has_next_page=true：说明还有下一页，可以问用户要翻页还是换关键词。",
             "\n  - has_next_page=false：说明没有下一页，只能建议换关键词或调整条件。",
             "\n- items 只是你最终挑选给用户展示的结果，数量可能远小于 fetched_count。不要用 items 的数量去推断是否还有下一页。",
+            "\n- 如果本轮 targets_zh 有多个目标，说明用户要的是一组需要互相配合的素材：请按目标分组介绍，说明每件在组合中的作用以及它与其它目标的关系；某个目标没有合适结果时，坦诚说明并给出可替代的搜索建议，不要假装已覆盖。",
             "\n重要规则：",
             "\n1) 禁止编造商品，只能基于 items。",
             "\n2) 必须使用 Markdown。",
             "\n2.1) 严禁在回复中出现字符串：__STATUS__: （这是前端的流式状态标记，会干扰解析）。",
             "\n3) 在 JSON 代码块之前，输出一行：当前关键词：<keyword>；当前页码：<page>。",
+            "\n   - 如果本轮有多个关键词（keywords_ja），用「、」把它们连接后输出。",
             "\n   - 如果 has_next_page=false，也要输出当前页码（方便前端做续聊提示）；但你需要在正文里明确说明「没有下一页」。不要输出任何参数名字例如fetched_count或者has_next_page等。",
             "\n4) 回复的最后必须包含一个 JSON 代码块，并且该 JSON 必须【原样】等于提供的 items_json（不要增删字段、不要改值、不要改变数组顺序）。",
             "\n5) 除了这个 JSON 代码块以外，不要输出其它代码块。",
@@ -749,23 +841,24 @@ export default async function handler(req: any) {
         const userText = [
           `用户指令：${userInstruction}`,
           `\n需求摘要：${needSummaryZh}`,
-          `\nkeyword_ja：${keywordJa}`,
+          `\nkeywords_ja：${keywordsJa && keywordsJa.length ? keywordsJa.join("、") : keywordJa}`,
+          `\ntargets_zh：${targetsZh && targetsZh.length ? targetsZh.join("、") : "（单一目标）"}`,
           `\npage：${page}`,
           `\nfetched_count：${fetchedCount}`,
           `\nhas_next_page：${hasNextPage ? "true" : "false"}`,
           "\nitems_json（必须原样输出到你回复末尾的 json 代码块）：\n" + itemsJson,
         ].join("");
 
-        // 若本轮用户有上传图片，把图片也传给最终回复模型，让它能基于图片进行描述/检索建议。
-        // 注意：这里复用“最后一条带图片的 user 消息”，不重复携带历史图片，避免 token/体积暴涨。
-        const lastUserImage = extractLastUserImage(clientMessages);
+        // 若本轮用户有上传图片，把图片也传给最终回复模型。
+        // 只取当前轮（最后一条 user 消息）的图片，避免把历史参考图重复注入。
+        const currentUserImage = extractUserInstruction(clientMessages).image;
 
-        const user: any = lastUserImage
+        const user: any = currentUserImage
           ? {
               role: "user",
               content: [
                 { type: "text", text: userText },
-                { type: "image_url", image_url: { url: lastUserImage } },
+                { type: "image_url", image_url: { url: currentUserImage } },
               ],
             }
           : { role: "user", content: userText };
@@ -851,20 +944,63 @@ export default async function handler(req: any) {
           return;
         }
 
-        let currentKeywordJa = first.action === "search" ? first.keyword_ja : userInstruction.slice(0, 24);
+        // 一次可能覆盖多个目标（例如一套搭配的多个部位）：当前批次的关键词与目标按顺序对应。
+        let currentKeywords: string[] =
+          first.action === "search" ? decisionKeywords(first) : [userInstruction.slice(0, 24)];
+        if (!currentKeywords.length) currentKeywords = [userInstruction.slice(0, 24)];
+        let currentTargets: string[] = first.action === "search" ? (first.targets_zh || []).slice(0, currentKeywords.length) : [];
         let currentPage = first.action === "search" ? first.page : 1;
         let needSummaryZh = first.action === "search" ? first.need_summary_zh : "用户希望找到匹配条件的 VRChat 资产。";
-        if (currentKeywordJa) triedKeywords.push(currentKeywordJa);
+        // 本轮出现过多目标后，收尾条件始终按多目标处理，避免后续单关键词轮次把 done 语义降级。
+        let sawMultiTarget = currentTargets.length > 1;
+        const overallTargets: string[] = [...currentTargets];
+        const rememberTargets = (targets: string[]) => {
+          if (targets.length > 1) sawMultiTarget = true;
+          for (const tg of targets) if (!overallTargets.includes(tg)) overallTargets.push(tg);
+        };
+        rememberTargets(currentTargets);
+        for (const k of currentKeywords) if (k && !triedKeywords.includes(k)) triedKeywords.push(k);
 
         // Step 2..N: agent loop（search -> fetch -> select -> (optional) 再 search）
         for (let step = 0; step < maxSteps; step++) {
           if (stopped) return;
-          await writeStatus(`正在抓取 Booth：关键词「${currentKeywordJa}」第 ${currentPage} 页...`);
-          const pageItems = await executeSearchBoothPage(currentKeywordJa, currentPage);
-          lastFetchedCount = pageItems.length;
-          lastHasNextPage = pageItems.length >= 60;
+          const batchKeywords = currentKeywords.slice(0, 10);
+          if (!batchKeywords.length) break;
+          const batchTargets = currentTargets.slice(0, batchKeywords.length);
+          const multiBatch = batchKeywords.length > 1;
+          // 目标多时压缩每个关键词的候选数与并发波次，控制请求量和时延。
+          const perKeywordCap = multiBatch ? (batchKeywords.length > 4 ? 15 : 30) : undefined;
+
+          await writeStatus(
+            multiBatch
+              ? `正在同时检索 ${batchKeywords.length} 个目标（第 ${currentPage} 页）：${batchKeywords.slice(0, 3).map((k) => `「${k}」`).join("、")}${batchKeywords.length > 3 ? " 等" : ""}...`
+              : `正在抓取 Booth：关键词「${batchKeywords[0]}」第 ${currentPage} 页...`
+          );
+
+          // 多目标：按 5 个一组并行检索、组间串行，避免一次向 Booth 发起过多请求。
+          const searchResults: BoothRawItem[][] = [];
+          for (let i = 0; i < batchKeywords.length; i += 5) {
+            const chunk = batchKeywords.slice(i, i + 5);
+            const part = await Promise.all(
+              chunk.map((kw) => executeSearchBoothPage(kw, currentPage, perKeywordCap))
+            );
+            searchResults.push(...part);
+            if (stopped) return;
+          }
+          const pageItems = multiBatch
+            ? mergeSearchCandidates(searchResults, 30)
+            : searchResults[0] || [];
+          lastFetchedCount = searchResults.reduce((n, items) => n + (items?.length || 0), 0);
+          lastHasNextPage = !multiBatch && (searchResults[0]?.length || 0) >= 60;
           if (stopped) return;
-          await writeStatus(`抓取到 ${pageItems.length} 条，璃璃正在选择/决定下一步...`);
+          await writeStatus(`抓取到 ${lastFetchedCount} 条，璃璃正在选择/决定下一步...`);
+
+          const pickedBrief = picked.map((p) => ({
+            id: p.id,
+            title: p.title,
+            tags: p.tags,
+            description: p.description,
+          }));
 
           let decision: AgentDecision;
           try {
@@ -874,11 +1010,14 @@ export default async function handler(req: any) {
               model: modelName,
               messages: clientMessages,
               candidates: pageItems,
-              candidatesKeywordJa: currentKeywordJa,
+              candidatesKeywordJa: batchKeywords.join(" / "),
+              candidatesKeywords: batchKeywords,
+              candidatesTargets: multiBatch ? batchTargets : undefined,
               candidatesPage: currentPage,
               triedKeywords,
               excludeIds: exclude,
               pickedIds,
+              picked: pickedBrief,
               needMin: minNeed,
               maxPick,
               signal: requestSignal,
@@ -887,7 +1026,7 @@ export default async function handler(req: any) {
             console.log(`[Loop] Step ${step} decision action: ${decision.action}`);
           } catch (e: any) {
             console.error(`[Agent] Loop Step ${step} Decision Error:`, e?.message || e);
-            break; 
+            break;
           }
 
           if (stopped) return;
@@ -899,10 +1038,13 @@ export default async function handler(req: any) {
           }
 
           if (decision.action === "search") {
-            currentKeywordJa = decision.keyword_ja || currentKeywordJa;
+            currentKeywords = decisionKeywords(decision);
+            if (!currentKeywords.length) currentKeywords = [batchKeywords[0]];
+            currentTargets = (decision.targets_zh || []).slice(0, currentKeywords.length);
+            rememberTargets(currentTargets);
             currentPage = decision.page || 1;
             needSummaryZh = decision.need_summary_zh || needSummaryZh;
-            if (currentKeywordJa && !triedKeywords.includes(currentKeywordJa)) triedKeywords.push(currentKeywordJa);
+            for (const k of currentKeywords) if (k && !triedKeywords.includes(k)) triedKeywords.push(k);
             continue;
           }
 
@@ -928,10 +1070,14 @@ export default async function handler(req: any) {
               });
             }
 
-            // 策略调整：如果模型返回 done，或者我们已经凑够了 minNeed，或者这一步什么都没选（防止原地打转），则跳出循环进入生成阶段。
-            if (picked.length >= minNeed || decision.done || (selectCountInThisStep === 0 && picked.length > 0)) break;
+            // 收尾策略：
+            // - 单目标：选够 minNeed 或模型判定 done 即可进入生成阶段。
+            // - 多目标：必须由模型确认 done（每个目标都已覆盖或确认无合适结果），
+            //   否则继续检索，避免只覆盖了第一个目标就收尾。
+            const doneEnough = sawMultiTarget ? !!decision.done : (picked.length >= minNeed || !!decision.done);
+            if (doneEnough || (selectCountInThisStep === 0 && picked.length > 0)) break;
 
-            // 结果还不够，且还有重试空间：让 agent 再决定下一次 search（翻页/换关键词）
+            // 结果还不够，且还有重试空间：让 agent 再决定下一次 search（翻页/换关键词/补齐目标）
             // 增加判断：如果已经到了最后一步循环，没必要再请求一次决策，直接 break 让后面生成回复。
             if (step >= maxSteps - 1) break;
 
@@ -946,6 +1092,12 @@ export default async function handler(req: any) {
                 triedKeywords,
                 excludeIds: exclude,
                 pickedIds,
+                picked: picked.map((p) => ({
+                  id: p.id,
+                  title: p.title,
+                  tags: p.tags,
+                  description: p.description,
+                })),
                 needMin: minNeed,
                 maxPick,
                 signal: requestSignal,
@@ -960,15 +1112,21 @@ export default async function handler(req: any) {
             if (stopped) return;
 
             if (next.action === "reply") {
+              // 已经有选中的商品时，不要让一个“补充说明式”的 reply 吞掉结果：
+              // 交给最终回复阶段，连同 items 一起输出。
+              if (picked.length > 0) break;
               await write(next.reply_zh);
               await writer.close();
               return;
             }
             if (next.action === "search") {
-              currentKeywordJa = next.keyword_ja || currentKeywordJa;
+              currentKeywords = decisionKeywords(next);
+              if (!currentKeywords.length) currentKeywords = [batchKeywords[0]];
+              currentTargets = (next.targets_zh || []).slice(0, currentKeywords.length);
+              rememberTargets(currentTargets);
               currentPage = next.page || 1;
               needSummaryZh = next.need_summary_zh || needSummaryZh;
-              if (currentKeywordJa && !triedKeywords.includes(currentKeywordJa)) triedKeywords.push(currentKeywordJa);
+              for (const k of currentKeywords) if (k && !triedKeywords.includes(k)) triedKeywords.push(k);
               continue;
             }
             // 如果 next.action 又是 select，可能会导致无限循环，这里强制下一次循环
@@ -982,7 +1140,9 @@ export default async function handler(req: any) {
           userInstruction,
           needSummaryZh,
           items: picked,
-          keywordJa: currentKeywordJa,
+          keywordJa: currentKeywords.join(" / "),
+          keywordsJa: currentKeywords,
+          targetsZh: overallTargets.slice(0, 10),
           page: currentPage,
           fetchedCount: lastFetchedCount,
           hasNextPage: lastHasNextPage,

@@ -2883,13 +2883,29 @@ const App = () => {
         headers['x-visitor-id'] = visitorId;
       }
 
+      // 只发送模型真正会用到的上下文：
+      // - 图片仅当前轮（服务端也只消费最后一条用户消息的图片），历史图片不再重复上传
+      // - items 只保留 id/title/tags，用于去重和“刚才那件”的指代
+      // - 欢迎语（init）属于 UI 文案，不作为对话上下文
+      const wireBase = updatedMessages.filter((m) => m.id !== 'init');
+      const lastUserIdx = wireBase.reduce((acc, m, i) => (m.role === 'user' ? i : acc), -1);
+      const wireMessages = wireBase.map((m, idx) => ({
+        role: m.role,
+        text: m.role === 'model'
+          ? m.text.replace(/```json[\s\S]*?```/gi, '').trim()
+          : m.text,
+        image: idx === lastUserIdx ? m.image : undefined,
+        hasImage: !!m.image,
+        items: m.items?.map((it) => ({ id: it.id, title: it.title, tags: it.tags })),
+      }));
+
       const response = await fetch('/api/chat', {
         method: 'POST',
         headers,
-        body: JSON.stringify({ 
-          messages: updatedMessages, 
+        body: JSON.stringify({
+          messages: wireMessages,
           chat_id: sessionId,
-          language: i18n.language 
+          language: i18n.language
         }),
         signal: abortController.signal,
       });
