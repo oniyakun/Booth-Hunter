@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from "react";
 import { createRoot } from "react-dom/client";
-import { Search, Image as ImageIcon, Upload, ExternalLink, Loader2, Sparkles, ShoppingBag, X, AlertCircle, Terminal, ChevronDown, ChevronUp, Send, User, Hammer, LogOut, History, Plus, PanelLeft, UserCircle, Layout, MessageSquare, Trash2, Github, Shield, Users, Pause, Globe, Megaphone } from "lucide-react";
+import { Search, Image as ImageIcon, ExternalLink, Loader2, Check, Info, Wrench, ShoppingBag, X, AlertCircle, Terminal, ArrowUp, LogOut, Plus, PanelLeft, UserCircle, Layout, MessageSquare, Trash2, Github, Shield, Users, Pause, Globe, Megaphone } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import "./i18n";
 import { useTranslation } from "react-i18next";
@@ -46,41 +46,41 @@ type UserLimitDraft = {
 };
 
 const toastAccent = (t: ToastType) => {
-  if (t === 'success') return 'border-emerald-500/30 bg-emerald-500/10 text-emerald-200';
-  if (t === 'error') return 'border-[#FF5C5C]/30 bg-[#FF5C5C]/10 text-[#FFD3C6]';
-  return 'border-white/10 bg-white/5 text-zinc-200';
+  if (t === 'success') return 'border-white/[0.14] bg-white/[0.04] text-white';
+  if (t === 'error') return 'border-[#FF8F96]/30 bg-[#FF8F96]/[0.06] text-[#FFD9DC]';
+  return 'border-white/[0.10] bg-white/[0.03] text-zinc-200';
 };
 
 const ToastViewport = ({ toasts, onDismiss }: { toasts: Toast[]; onDismiss: (id: string) => void }) => {
   const { t } = useTranslation();
   return (
-    <div className="fixed right-4 bottom-4 z-[90] w-[calc(100vw-2rem)] max-sm:w-[calc(100vw-1rem)] max-w-sm space-y-3">
+    <div className="fixed right-4 bottom-4 z-[90] w-[calc(100vw-2rem)] max-sm:w-[calc(100vw-1rem)] max-w-[360px] space-y-2">
       {toasts.map((toast) => (
         <div
           key={toast.id}
-          className={`bh-surface-strong border shadow-2xl rounded-2xl p-4 backdrop-blur-md ${toastAccent(toast.type)}`}
+          className={`bh-surface-strong bh-anim-pop border rounded-xl p-4 ${toastAccent(toast.type)}`}
         >
           <div className="flex items-start gap-3">
             <div className="mt-0.5">
               {toast.type === 'success' ? (
-                <Sparkles size={16} />
+                <Check size={16} className="text-white" />
               ) : toast.type === 'error' ? (
-                <AlertCircle size={16} />
+                <AlertCircle size={16} className="text-[#FF8F96]" />
               ) : (
-                <Terminal size={16} />
+                <Info size={16} className="text-[#C9A7FF]" />
               )}
             </div>
             <div className="min-w-0 flex-1">
-              {toast.title && <div className="text-sm font-bold text-white truncate">{toast.title}</div>}
-              <div className="text-sm text-zinc-200 leading-relaxed break-words">{toast.message}</div>
+              {toast.title && <div className="text-[13px] font-semibold text-white truncate">{toast.title}</div>}
+              <div className="text-[12.5px] text-zinc-300 leading-relaxed break-words">{toast.message}</div>
             </div>
             <button
               onClick={() => onDismiss(toast.id)}
-              className="p-1 rounded-lg text-zinc-300 hover:text-white hover:bg-white/10"
+              className="p-1 rounded-md text-zinc-300 hover:text-white hover:bg-white/10"
               aria-label={t("Close")}
               title={t("Close")}
             >
-              <X size={16} />
+              <X size={15} />
             </button>
           </div>
         </div>
@@ -107,21 +107,21 @@ const ModalShell = ({
   const { t } = useTranslation();
   if (!open) return null;
   return (
-    <div className="fixed inset-0 z-[95] bg-black/70 backdrop-blur-md flex items-center justify-center p-4">
+    <div className="fixed inset-0 z-[95] bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
       <div
-        className={`w-full ${widthClassName} bh-surface-strong rounded-3xl border border-white/10 shadow-2xl overflow-hidden`}
+        className={`w-full ${widthClassName} bh-surface-strong bh-anim-pop rounded-[18px] overflow-hidden`}
         role="dialog"
         aria-modal="true"
         aria-label={title}
       >
-        <div className="p-4 border-b border-white/5 flex items-center justify-between">
-          <div className="text-white font-bold">{title}</div>
+        <div className="px-5 h-14 border-b border-white/[0.07] flex items-center justify-between">
+          <div className="text-[14px] font-semibold text-white">{title}</div>
           <button onClick={onClose} className="bh-icon-btn" aria-label={t("Close")}>
             <X size={16} />
           </button>
         </div>
-        <div className="p-4">{children}</div>
-        {footer && <div className="px-4 py-3 border-t border-white/5">{footer}</div>}
+        <div className="p-5">{children}</div>
+        {footer && <div className="px-5 py-4 border-t border-white/[0.07]">{footer}</div>}
       </div>
     </div>
   );
@@ -141,18 +141,18 @@ const ConfirmModal = ({
   const { t } = useTranslation();
   return (
     <ModalShell open={open} title={options.title} onClose={onCancel}>
-      <div className="text-sm text-zinc-300 leading-relaxed whitespace-pre-wrap">{options.message}</div>
-      <div className="mt-5 flex gap-3">
+      <div className="text-[13.5px] text-zinc-300 leading-relaxed whitespace-pre-wrap">{options.message}</div>
+      <div className="mt-5 flex gap-2">
         <button
           onClick={onCancel}
-          className="flex-1 py-2.5 rounded-xl text-sm font-medium bh-btn-secondary text-white"
+          className="flex-1 h-10 rounded-[10px] text-[13px] font-medium bh-btn-secondary"
         >
           {options.cancelText || t("Cancel")}
         </button>
         <button
           onClick={onConfirm}
-          className={`flex-1 py-2.5 rounded-xl text-sm font-bold text-white transition-all ${
-            options.destructive ? 'bg-[#FF5C5C] hover:bg-[#FF5C5C]/90' : 'bh-btn-primary'
+          className={`flex-1 h-10 rounded-[10px] text-[13px] font-medium ${
+            options.destructive ? 'bh-btn-danger' : 'bh-btn-primary'
           }`}
         >
           {options.confirmText || t("Confirm")}
@@ -182,13 +182,13 @@ const AnnouncementModal = ({
       footer={
         <button
           onClick={onDismiss}
-          className="w-full py-2.5 rounded-xl text-sm font-bold text-white bh-btn-primary"
+          className="w-full h-10 rounded-[10px] text-[13px] font-medium bh-btn-primary"
         >
           {t("GotIt")}
         </button>
       }
     >
-      <div className="markdown-body text-sm text-zinc-300 leading-relaxed max-h-[60vh] overflow-y-auto pr-1">
+      <div className="markdown-body text-[13.5px] text-zinc-300 leading-relaxed max-h-[60vh] overflow-y-auto pr-1">
         <ReactMarkdown>{announcement.body}</ReactMarkdown>
       </div>
     </ModalShell>
@@ -228,28 +228,28 @@ const UserLimitModal = ({
 
   return (
     <ModalShell open={open} title={t("SetUserLimit")} onClose={onCancel}>
-      <div className="text-xs text-zinc-400 mb-3">
+      <div className="text-[11.5px] text-zinc-400 mb-4">
         {t("TargetUser")}：<span className="text-zinc-200 font-mono">{emailOrId}</span>
       </div>
 
-      <div className="space-y-3">
+      <div className="space-y-4">
         <div>
-          <label className="block text-xs font-medium text-zinc-400 mb-1">{t("SessionLimitLabel")}</label>
+          <label className="block text-[11.5px] font-medium text-zinc-400 mb-1.5">{t("SessionLimitLabel")}</label>
           <input
             value={sessionStr}
             onChange={(e) => setSessionStr(e.target.value)}
             placeholder={t("LimitPlaceholder")}
-            className="w-full rounded-xl px-4 py-3 text-white focus:outline-none bh-input"
+            className="w-full rounded-[10px] px-3.5 py-3 text-[13.5px] text-white focus:outline-none bh-input"
             inputMode="numeric"
           />
         </div>
         <div>
-          <label className="block text-xs font-medium text-zinc-400 mb-1">{t("DailyLimitLabel")}</label>
+          <label className="block text-[11.5px] font-medium text-zinc-400 mb-1.5">{t("DailyLimitLabel")}</label>
           <input
             value={dailyStr}
             onChange={(e) => setDailyStr(e.target.value)}
             placeholder={t("LimitPlaceholder")}
-            className="w-full rounded-xl px-4 py-3 text-white focus:outline-none bh-input"
+            className="w-full rounded-[10px] px-3.5 py-3 text-[13.5px] text-white focus:outline-none bh-input"
             inputMode="numeric"
           />
         </div>
@@ -259,8 +259,8 @@ const UserLimitModal = ({
         {t("LimitHint")}
       </div>
 
-      <div className="mt-5 flex gap-3">
-        <button onClick={onCancel} className="flex-1 py-2.5 rounded-xl text-sm font-medium bh-btn-secondary text-white">
+      <div className="mt-5 flex gap-2">
+        <button onClick={onCancel} className="flex-1 h-10 rounded-[10px] text-[13px] font-medium bh-btn-secondary">
           {t("Cancel")}
         </button>
         <button
@@ -275,7 +275,7 @@ const UserLimitModal = ({
               throw e;
             }
           }}
-          className="flex-1 py-2.5 rounded-xl text-sm font-bold bh-btn-primary text-white"
+          className="flex-1 h-10 rounded-[10px] text-[13px] font-medium bh-btn-primary"
         >
           {t("Save")}
         </button>
@@ -527,49 +527,43 @@ const AdminPanel = ({
   };
 
   const AdminAssetCard = ({ asset }: { asset: AssetResult }) => {
-    const { t: tCard } = useTranslation();
     const [imgError, setImgError] = useState(false);
-    const placeholderGradient =
-      'linear-gradient(135deg, rgba(252, 77, 80, 0.18), rgba(255, 61, 127, 0.10))';
 
     return (
-      <div className="group relative bh-card overflow-hidden transition-all duration-300 flex flex-col">
-        <div className="h-44 w-full relative overflow-hidden bg-zinc-900/60 border-b border-white/5">
+      <div className="group relative bh-card overflow-hidden flex flex-col">
+        <div className="h-44 w-full relative overflow-hidden bh-media-fallback border-b border-white/[0.07]">
           {asset.imageUrl && !imgError ? (
             <img
               src={asset.imageUrl}
               alt={asset.title}
-              className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+              className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.02]"
               onError={() => setImgError(true)}
               loading="lazy"
             />
           ) : (
-            <div
-              className="w-full h-full flex flex-col items-center justify-center p-6 text-center"
-              style={{ background: placeholderGradient }}
-            >
-              <ShoppingBag size={34} className="mb-3 text-white/40" />
-              <span className="text-xs text-zinc-300 font-medium bh-clamp-3 px-2 leading-relaxed">{asset.title}</span>
+            <div className="w-full h-full flex flex-col items-center justify-center p-6 text-center">
+              <ShoppingBag size={30} className="mb-3 text-white/30" />
+              <span className="text-[12px] text-zinc-300 bh-clamp-3 px-2 leading-relaxed">{asset.title}</span>
             </div>
           )}
 
           {asset.price && (
-            <div className="absolute top-3 right-3 text-white text-xs font-bold px-2.5 py-1 bh-badge">
+            <div className="absolute top-3 right-3 text-white text-[11px] font-medium px-2 py-1 bh-badge font-mono">
               {asset.price}
             </div>
           )}
         </div>
 
         <div className="p-4 flex flex-col flex-grow">
-          <h3 className="font-bold text-sm text-white leading-snug bh-clamp-2 group-hover:text-[#FF6B3D] transition-colors">
+          <h3 className="font-medium text-[13px] text-white leading-snug bh-clamp-2 group-hover:text-[#D8C2FF] transition-colors">
             {asset.title}
           </h3>
 
-          <p className="text-xs text-zinc-400 mt-2 bh-clamp-2 flex-grow leading-relaxed">
+          <p className="text-[12px] text-zinc-400 mt-1.5 bh-clamp-2 flex-grow leading-relaxed">
             {asset.description || asset.shopName}
           </p>
 
-          <div className="mt-3 flex flex-wrap gap-2">
+          <div className="mt-3 flex flex-wrap gap-1.5">
             {(asset.tags || []).slice(0, 4).map((tag, i) => (
               <span key={i} className="text-[10px] px-2 py-0.5 bh-chip">
                 {tag}
@@ -577,13 +571,13 @@ const AdminPanel = ({
             ))}
           </div>
 
-          <div className="mt-4 pt-3 border-t border-[#2A2230] flex justify-between items-center">
-            <span className="text-[11px] text-zinc-500 truncate max-w-[60%]">{asset.shopName}</span>
-             <a 
-              href={asset.url} 
-              target="_blank" 
+          <div className="mt-4 pt-3 border-t border-white/[0.07] flex justify-between items-center gap-3">
+            <span className="text-[10.5px] text-zinc-500 truncate max-w-[60%]">{asset.shopName}</span>
+             <a
+              href={asset.url}
+              target="_blank"
               rel="noopener noreferrer"
-              className="flex items-center gap-1.5 text-xs font-bold text-white px-3 py-2 rounded-xl bh-btn-primary"
+              className="flex items-center gap-1.5 text-[11.5px] font-medium px-3 h-8 rounded-[8px] bh-btn-primary"
             >
               {tAdmin("AssetDetails")}
               <ExternalLink size={12} />
@@ -605,17 +599,17 @@ const AdminPanel = ({
     return (
       <div key={m.id || idx} className="bh-card p-4">
         <div className="flex items-center justify-between mb-2">
-          <div className={`text-xs font-mono ${isUser ? 'text-[#FF5C5C]' : 'text-[#FF6B3D]'}`}>
+          <div className={`text-[11px] font-mono ${isUser ? 'text-[#C9A7FF]' : 'text-zinc-500'}`}>
             {m.role}
           </div>
-          <div className="text-[10px] text-zinc-500">{m.timestamp ? new Date(m.timestamp).toLocaleString() : ''}</div>
+          <div className="text-[10px] font-mono text-zinc-500">{m.timestamp ? new Date(m.timestamp).toLocaleString() : ''}</div>
         </div>
 
         {m.image && (
-          <img src={m.image} alt="Upload" className="max-h-64 rounded-xl mb-3 border border-zinc-700" />
+          <img src={m.image} alt="Upload" className="max-h-64 rounded-[10px] mb-3 border border-white/[0.08]" />
         )}
 
-        <div className="text-sm text-zinc-200 whitespace-pre-wrap break-words">
+        <div className="text-[13px] text-zinc-200 whitespace-pre-wrap break-words">
           <ReactMarkdown>{cleanText || ''}</ReactMarkdown>
         </div>
 
@@ -860,17 +854,14 @@ const AdminPanel = ({
   });
 
   return (
-    <div className="fixed inset-0 z-[80] bg-black/70 backdrop-blur-md">
-      <div className="absolute inset-3 md:inset-6 bh-surface-strong rounded-3xl border border-white/10 overflow-hidden shadow-2xl">
-        <div className="h-[72px] px-4 border-b border-white/5 flex items-center justify-between">
+    <div className="fixed inset-0 z-[80] bg-black/80 backdrop-blur-sm">
+      <div className="absolute inset-2 md:inset-4 bh-surface-strong rounded-[20px] overflow-hidden">
+        <div className="h-16 px-4 border-b border-white/[0.07] flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-2xl flex items-center justify-center bh-btn-primary">
-              <Shield size={18} />
+            <div className="w-8 h-8 rounded-[9px] flex items-center justify-center bh-btn-primary">
+              <Shield size={16} />
             </div>
-            <div className="flex flex-col leading-none">
-              <span className="text-white font-bold">{t("AdminPanel")}</span>
-              <span className="text-[10px] text-zinc-400 font-mono tracking-wide mt-0.5">Admin Console</span>
-            </div>
+            <span className="text-white font-semibold text-[14px]">{t("AdminPanel")}</span>
           </div>
 
           <div className="flex items-center gap-2">
@@ -888,13 +879,13 @@ const AdminPanel = ({
           </div>
         </div>
 
-        <div className="h-[calc(100%-72px)] grid grid-cols-1 lg:grid-cols-[320px_1fr]">
+        <div className="h-[calc(100%-64px)] grid grid-cols-1 lg:grid-cols-[320px_1fr]">
           {/* Left: Users */}
-          <aside className="border-b lg:border-b-0 lg:border-r border-white/5 overflow-hidden flex flex-col bg-black/20">
+          <aside className="border-b lg:border-b-0 lg:border-r border-white/[0.07] overflow-hidden flex flex-col bg-white/[0.015]">
             {/* Header */}
-            <div className="px-4 py-3 border-b border-white/5">
-              <div className="flex items-center gap-2 text-white font-bold">
-                <Users size={18} className="text-[#FF5C5C]" />
+            <div className="px-4 py-3 border-b border-white/[0.07]">
+              <div className="flex items-center gap-2 text-white font-semibold text-[13px]">
+                <Users size={16} className="text-[#C9A7FF]" />
                 <span>{t("UserManagement")}</span>
               </div>
             </div>
@@ -902,8 +893,8 @@ const AdminPanel = ({
             {/* Scrollable Content */}
             <div className="flex-1 overflow-y-auto">
               {/* Section 1: Search */}
-              <div className="p-4 border-b border-white/5">
-                <div className="flex items-center gap-2 text-zinc-300 text-sm font-medium mb-3">
+              <div className="p-4 border-b border-white/[0.07]">
+                <div className="flex items-center gap-2 text-zinc-300 text-[12px] font-medium mb-3">
                   <Search size={14} className="text-zinc-500" />
                   <span>{t("SearchUser")}</span>
                 </div>
@@ -911,20 +902,20 @@ const AdminPanel = ({
                   value={userQuery}
                   onChange={(e) => setUserQuery(e.target.value)}
                   placeholder={t("SearchUserPlaceholder")}
-                  className="w-full rounded-xl px-4 py-2.5 text-white focus:outline-none bh-input text-sm"
+                  className="w-full rounded-[10px] px-3.5 py-2.5 text-white focus:outline-none bh-input text-[13px]"
                 />
               </div>
 
               {/* Section 2: View Controls */}
-              <div className="p-4 border-b border-white/5">
+              <div className="p-4 border-b border-white/[0.07]">
                 <div className="flex items-center justify-between mb-3">
-                  <div className="flex items-center gap-2 text-zinc-300 text-sm font-medium">
+                  <div className="flex items-center gap-2 text-zinc-300 text-[12px] font-medium">
                     <Layout size={14} className="text-zinc-500" />
                     <span>{t("ViewOptions")}</span>
                   </div>
                   <button
                     onClick={() => loadUsers()}
-                    className="p-1.5 rounded-lg text-zinc-500 hover:text-white hover:bg-white/5 transition-colors"
+                    className="p-1.5 rounded-md text-zinc-500 hover:text-white hover:bg-white/5 transition-colors"
                     title={t("Refresh")}
                   >
                     <Loader2 size={14} className={`${usersLoading ? 'animate-spin' : ''}`} />
@@ -932,16 +923,16 @@ const AdminPanel = ({
                 </div>
 
                 {/* Sort Options */}
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-1.5">
                   <button
                     onClick={() => {
                       setUserSortBy('created_at');
                       loadUsers('created_at');
                     }}
-                    className={`flex-1 px-2 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                    className={`flex-1 px-2 h-7 rounded-md text-[11px] font-medium transition-colors ${
                       userSortBy === 'created_at'
-                        ? 'bg-[#FF5C5C]/20 text-white'
-                        : 'bg-white/5 text-zinc-400 hover:text-zinc-200 hover:bg-white/[0.07]'
+                        ? 'bg-white/[0.09] text-white'
+                        : 'bg-white/[0.03] text-zinc-400 hover:text-zinc-200 hover:bg-white/[0.06]'
                     }`}
                     title={t("CreatedAt")}
                   >
@@ -952,10 +943,10 @@ const AdminPanel = ({
                       setUserSortBy('last_active');
                       loadUsers('last_active');
                     }}
-                    className={`flex-1 px-2 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                    className={`flex-1 px-2 h-7 rounded-md text-[11px] font-medium transition-colors ${
                       userSortBy === 'last_active'
-                        ? 'bg-[#FF5C5C]/20 text-white'
-                        : 'bg-white/5 text-zinc-400 hover:text-zinc-200 hover:bg-white/[0.07]'
+                        ? 'bg-white/[0.09] text-white'
+                        : 'bg-white/[0.03] text-zinc-400 hover:text-zinc-200 hover:bg-white/[0.06]'
                     }`}
                     title={t("LastActive")}
                   >
@@ -966,10 +957,10 @@ const AdminPanel = ({
                       setUserSortBy('total_turn_count');
                       loadUsers('total_turn_count');
                     }}
-                    className={`flex-1 px-2 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                    className={`flex-1 px-2 h-7 rounded-md text-[11px] font-medium transition-colors ${
                       userSortBy === 'total_turn_count'
-                        ? 'bg-[#FF5C5C]/20 text-white'
-                        : 'bg-white/5 text-zinc-400 hover:text-zinc-200 hover:bg-white/[0.07]'
+                        ? 'bg-white/[0.09] text-white'
+                        : 'bg-white/[0.03] text-zinc-400 hover:text-zinc-200 hover:bg-white/[0.06]'
                     }`}
                     title={t("TotalTurns")}
                   >
@@ -981,9 +972,9 @@ const AdminPanel = ({
                 <div className="mt-3">
                   <button
                     onClick={() => loadChats(null)}
-                    className="w-full py-2.5 rounded-xl text-sm font-medium bh-btn-secondary text-white flex items-center justify-center gap-2"
+                    className="w-full h-9 rounded-[8px] text-[12.5px] font-medium bh-btn-secondary flex items-center justify-center gap-2"
                   >
-                    <MessageSquare size={16} />
+                    <MessageSquare size={15} />
                     {t("ViewAllChats")}
                   </button>
                 </div>
@@ -991,13 +982,13 @@ const AdminPanel = ({
 
               {/* Section 3: Global Settings */}
               <div className="p-4">
-                <div className="flex items-center gap-2 text-zinc-300 text-sm font-medium mb-3">
+                <div className="flex items-center gap-2 text-zinc-300 text-[12px] font-medium mb-3">
                   <Shield size={14} className="text-zinc-500" />
                   <span>{t("GlobalLimit")}</span>
                 </div>
-                
+
                 <div className="space-y-3">
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-2 gap-2">
                     <div>
                       <label className="block text-[11px] text-zinc-500 mb-1.5">{t("SessionLimitLabel")}</label>
                       <input
@@ -1010,7 +1001,7 @@ const AdminPanel = ({
                           }));
                         }}
                         placeholder="50"
-                        className="w-full rounded-xl px-3 py-2 text-white focus:outline-none bh-input text-sm"
+                        className="w-full rounded-[8px] px-3 py-2 text-white focus:outline-none bh-input text-[13px]"
                         inputMode="numeric"
                       />
                     </div>
@@ -1026,16 +1017,16 @@ const AdminPanel = ({
                           }));
                         }}
                         placeholder="200"
-                        className="w-full rounded-xl px-3 py-2 text-white focus:outline-none bh-input text-sm"
+                        className="w-full rounded-[8px] px-3 py-2 text-white focus:outline-none bh-input text-[13px]"
                         inputMode="numeric"
                       />
                     </div>
                   </div>
-                  
+
                   <button
                     onClick={saveSettings}
                     disabled={settingsSaving || !settings}
-                    className="w-full py-2 rounded-xl text-sm font-medium bh-btn-primary text-white disabled:opacity-50 flex items-center justify-center gap-2"
+                    className="w-full h-9 rounded-[8px] text-[12.5px] font-medium bh-btn-primary disabled:opacity-50 flex items-center justify-center gap-2"
                   >
                     {settingsSaving ? (
                       <>
@@ -1049,9 +1040,9 @@ const AdminPanel = ({
                       </>
                     )}
                   </button>
-                  
-                  <div className="text-[10px] text-zinc-500 leading-relaxed bg-white/5 rounded-lg px-3 py-2">
-                    <span className="text-[#FF5C5C]">{t("Tip")}: </span>{t("LimitHint")}
+
+                  <div className="text-[10px] text-zinc-500 leading-relaxed bg-white/[0.03] border border-white/[0.06] rounded-[8px] px-3 py-2">
+                    <span className="text-[#C9A7FF]">{t("Tip")}: </span>{t("LimitHint")}
                   </div>
                 </div>
               </div>
@@ -1062,7 +1053,7 @@ const AdminPanel = ({
               {usersLoading ? (
                 Array.from({ length: 8 }).map((_, i) => <div key={i} className="bh-skeleton" style={{ height: 54 }} />)
               ) : filteredUsers.length === 0 ? (
-                <div className="text-sm text-zinc-500 text-center py-10">{t("NoUsers")}</div>
+                <div className="text-[12.5px] text-zinc-500 text-center py-10">{t("NoUsers")}</div>
               ) : (
                 filteredUsers.map((u) => (
                   <div
@@ -1080,20 +1071,20 @@ const AdminPanel = ({
                         loadChats(u.id);
                       }
                     }}
-                    className={`w-full text-left p-3 rounded-2xl border transition-all cursor-pointer outline-none focus:ring-2 focus:ring-[#FF6B3D]/30 ${
+                    className={`w-full text-left p-3 rounded-[10px] border transition-colors cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-[#C9A7FF]/40 ${
                       selectedUserId === u.id
-                        ? 'border-[#FF6B3D]/25 bg-[#FF6B3D]/10'
-                        : 'border-white/5 hover:border-white/10 hover:bg-white/5'
+                        ? 'border-[#C9A7FF]/30 bg-[#C9A7FF]/[0.06]'
+                        : 'border-white/[0.06] hover:border-white/[0.12] hover:bg-white/[0.03]'
                     }`}
                   >
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0 flex-1">
-                        <div className="text-sm text-white font-medium truncate">{u.email || u.id}</div>
+                        <div className="text-[12.5px] text-white font-medium truncate">{u.email || u.id}</div>
                         <div className="text-[10px] text-zinc-500 font-mono truncate mt-1">{u.id}</div>
                         <div className="text-[10px] text-zinc-500 mt-1">
-                          {t("DailyTurns")}：<span className="text-zinc-300">{u.daily_turn_count ?? 0}</span>
+                          {t("DailyTurns")}：<span className="text-zinc-300 font-mono">{u.daily_turn_count ?? 0}</span>
                           <span className="mx-2 text-zinc-600">|</span>
-                          {t("TotalTurns")}：<span className="text-zinc-300">{u.total_turn_count ?? 0}</span>
+                          {t("TotalTurns")}：<span className="text-zinc-300 font-mono">{u.total_turn_count ?? 0}</span>
                         </div>
                         <div className="text-[10px] text-zinc-500 mt-1">
                           {t("OverrideLimit")}：
@@ -1110,11 +1101,11 @@ const AdminPanel = ({
                             e.stopPropagation();
                             onClickEditUserLimits(u);
                           }}
-                          className="p-2 rounded-xl bh-btn-secondary text-zinc-200 hover:text-white"
+                          className="p-2 rounded-[8px] bh-btn-secondary text-zinc-200 hover:text-white"
                           title={t("SetUserLimit")}
                           aria-label={t("SetUserLimit")}
                         >
-                          <Terminal size={16} />
+                          <Terminal size={15} />
                         </button>
 
                         <button
@@ -1124,17 +1115,17 @@ const AdminPanel = ({
                             deleteUser(u.id);
                           }}
                           disabled={!!userDeletingId}
-                          className="p-2 rounded-xl bh-btn-secondary text-zinc-200 hover:text-white disabled:opacity-50"
+                          className="p-2 rounded-[8px] bh-btn-secondary text-zinc-200 hover:text-white disabled:opacity-50"
                           title={t("DeleteUser")}
                           aria-label={t("DeleteUser")}
                         >
-                          {userDeletingId === u.id ? <Loader2 size={16} className="animate-spin" /> : <Trash2 size={16} />}
+                          {userDeletingId === u.id ? <Loader2 size={15} className="animate-spin" /> : <Trash2 size={15} />}
                         </button>
                       </div>
                     </div>
                     {u.is_admin && (
-                      <div className="mt-2 inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-lg bg-[#FF5C5C]/10 border border-[#FF5C5C]/20 text-[#FF5C5C]">
-                        <Shield size={12} />
+                      <div className="mt-2 inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-md bg-[#C9A7FF]/10 border border-[#C9A7FF]/20 text-[#D8C2FF]">
+                        <Shield size={11} />
                         {t("Admin")}
                       </div>
                     )}
@@ -1146,11 +1137,11 @@ const AdminPanel = ({
 
           {/* Right: Chats + Detail */}
           <section className="overflow-hidden flex flex-col">
-            <div className="p-4 border-b border-white/5 flex items-center justify-between">
-              <div className="text-white font-bold">{t("ChatList")}</div>
+            <div className="px-4 h-12 border-b border-white/[0.07] flex items-center justify-between">
+              <div className="text-white font-semibold text-[13px]">{t("ChatList")}</div>
               <button
                 onClick={() => loadChats(selectedUserId)}
-                className="py-2 px-3 rounded-xl text-sm font-medium bh-btn-secondary text-white"
+                className="h-8 px-3 rounded-[8px] text-[12px] font-medium bh-btn-secondary"
               >
                 {t("Refresh")}
               </button>
@@ -1158,7 +1149,7 @@ const AdminPanel = ({
 
             {error && (
               <div className="p-4">
-                <div className="p-3 bg-[#FF5C5C]/10 border border-[#FF5C5C]/25 rounded-xl text-[#FFD3C6] text-sm">
+                <div className="p-3 bg-[#FF8F96]/[0.06] border border-[#FF8F96]/[0.22] rounded-[10px] text-[#FFD9DC] text-[12.5px]">
                   {error}
                 </div>
               </div>
@@ -1166,11 +1157,11 @@ const AdminPanel = ({
 
             <div className="flex-1 overflow-hidden grid grid-cols-1 xl:grid-cols-[420px_1fr]">
               {/* Chat list */}
-              <div className="border-b xl:border-b-0 xl:border-r border-white/5 overflow-y-auto p-3 space-y-2">
+              <div className="border-b xl:border-b-0 xl:border-r border-white/[0.07] overflow-y-auto p-3 space-y-2">
                 {chatsLoading ? (
                   Array.from({ length: 10 }).map((_, i) => <div key={i} className="bh-skeleton" style={{ height: 64 }} />)
                 ) : chats.length === 0 ? (
-                  <div className="text-sm text-zinc-500 text-center py-10">{t("NoChats")}</div>
+                  <div className="text-[12.5px] text-zinc-500 text-center py-10">{t("NoChats")}</div>
                 ) : (
                   chats.map((c) => (
                     <div
@@ -1188,14 +1179,14 @@ const AdminPanel = ({
                           loadChatDetail(c.id);
                         }
                       }}
-                      className={`w-full text-left p-3 rounded-2xl border transition-all cursor-pointer outline-none focus:ring-2 focus:ring-[#FF6B3D]/30 ${
+                      className={`w-full text-left p-3 rounded-[10px] border transition-colors cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-[#C9A7FF]/40 ${
                         selectedChatId === c.id
-                          ? 'border-[#FF6B3D]/25 bg-[#FF6B3D]/10'
-                          : 'border-white/5 hover:border-white/10 hover:bg-white/5'
+                          ? 'border-[#C9A7FF]/30 bg-[#C9A7FF]/[0.06]'
+                          : 'border-white/[0.06] hover:border-white/[0.12] hover:bg-white/[0.03]'
                       }`}
                     >
                       <div className="flex items-start justify-between gap-3">
-                        <div className="text-sm text-white font-medium truncate min-w-0 flex-1">
+                        <div className="text-[12.5px] text-white font-medium truncate min-w-0 flex-1">
                           {c.title || t("UntitledChat")}
                         </div>
                         <button
@@ -1205,17 +1196,17 @@ const AdminPanel = ({
                             deleteChat(c.id);
                           }}
                           disabled={!!chatDeletingId}
-                          className="p-2 rounded-xl bh-btn-secondary text-zinc-200 hover:text-white disabled:opacity-50"
+                          className="p-2 rounded-[8px] bh-btn-secondary text-zinc-200 hover:text-white disabled:opacity-50"
                           title={t("DeleteChat")}
                           aria-label={t("DeleteChat")}
                         >
-                          {chatDeletingId === c.id ? <Loader2 size={16} className="animate-spin" /> : <Trash2 size={16} />}
+                          {chatDeletingId === c.id ? <Loader2 size={15} className="animate-spin" /> : <Trash2 size={15} />}
                         </button>
                       </div>
                       <div className="text-[10px] text-zinc-500 font-mono truncate mt-1">chat: {c.id}</div>
                       <div className="text-[10px] text-zinc-500 font-mono truncate mt-1">user: {c.user_id}</div>
-                      <div className="text-[10px] text-zinc-500 mt-1">{t("SessionTurns")}：{c.turn_count ?? 0}</div>
-                      <div className="text-[10px] text-zinc-600 mt-1">{new Date(c.created_at).toLocaleString()}</div>
+                      <div className="text-[10px] text-zinc-500 mt-1">{t("SessionTurns")}：<span className="font-mono">{c.turn_count ?? 0}</span></div>
+                      <div className="text-[10px] text-zinc-600 mt-1 font-mono">{new Date(c.created_at).toLocaleString()}</div>
                     </div>
                   ))
                 )}
@@ -1224,7 +1215,7 @@ const AdminPanel = ({
               {/* Chat detail */}
               <div className="overflow-y-auto p-4">
                 {!selectedChatId ? (
-                  <div className="text-zinc-500 text-sm text-center py-16">{t("SelectChatToView")}</div>
+                  <div className="text-zinc-500 text-[12.5px] text-center py-16">{t("SelectChatToView")}</div>
                 ) : chatLoading ? (
                   <div className="space-y-3">
                     <div className="bh-skeleton" style={{ height: 18, width: '60%' }} />
@@ -1232,14 +1223,14 @@ const AdminPanel = ({
                     <div className="bh-skeleton" style={{ height: 120 }} />
                   </div>
                 ) : !chatDetail ? (
-                  <div className="text-zinc-500 text-sm text-center py-16">{t("ChatNotFound")}</div>
+                  <div className="text-zinc-500 text-[12.5px] text-center py-16">{t("ChatNotFound")}</div>
                 ) : (
                   <div>
                     <div className="mb-4">
-                      <div className="text-white font-bold text-lg truncate">{chatDetail.title || t("UntitledChat")}</div>
-                      <div className="text-[11px] text-zinc-500 font-mono mt-1">chat: {chatDetail.id}</div>
-                      <div className="text-[11px] text-zinc-500 font-mono mt-1">user: {chatDetail.user_id}</div>
-                      <div className="text-[11px] text-zinc-500 font-mono mt-1">turn_count: {chatDetail.turn_count ?? 0}</div>
+                      <div className="text-white font-semibold text-[17px] truncate">{chatDetail.title || t("UntitledChat")}</div>
+                      <div className="text-[10.5px] text-zinc-500 font-mono mt-1">chat: {chatDetail.id}</div>
+                      <div className="text-[10.5px] text-zinc-500 font-mono mt-1">user: {chatDetail.user_id}</div>
+                      <div className="text-[10.5px] text-zinc-500 font-mono mt-1">turn_count: {chatDetail.turn_count ?? 0}</div>
                     </div>
 
                     <div className="space-y-4">
@@ -1344,10 +1335,10 @@ const AdminAnnouncementModal = ({
 
   const statusClassName =
     status === 'published'
-      ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/25'
+      ? 'bg-[#8FE3B0]/10 text-[#8FE3B0] border border-[#8FE3B0]/25'
       : status === 'scheduled'
-      ? 'bg-amber-500/15 text-amber-300 border border-amber-500/25'
-      : 'bg-zinc-700/30 text-zinc-300 border border-white/10';
+      ? 'bg-[#F0CF92]/10 text-[#F0CF92] border border-[#F0CF92]/25'
+      : 'bg-white/[0.04] text-zinc-300 border border-white/[0.10]';
 
   const handleSave = async () => {
     const title = draft.title.trim();
@@ -1438,26 +1429,26 @@ const AdminAnnouncementModal = ({
       onClose={onClose}
       widthClassName="max-w-2xl"
       footer={
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2">
           {hasSavedAnnouncement && (
             <button
               onClick={handleDelete}
               disabled={saving}
-              className="px-3 py-2.5 rounded-xl text-sm font-medium text-[#FF5C5C] hover:bg-[#FF5C5C]/10 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="px-3 h-10 rounded-[10px] text-[13px] font-medium text-[#FF8F96] hover:bg-[#FF8F96]/10 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {t("Delete")}
             </button>
           )}
           <button
             onClick={onClose}
-            className="flex-1 py-2.5 rounded-xl text-sm font-medium bh-btn-secondary text-white"
+            className="flex-1 h-10 rounded-[10px] text-[13px] font-medium bh-btn-secondary"
           >
             {t("Cancel")}
           </button>
           <button
             onClick={handleSave}
             disabled={loading || saving}
-            className="flex-1 py-2.5 rounded-xl text-sm font-bold text-white bh-btn-primary disabled:opacity-50 disabled:cursor-not-allowed"
+            className="flex-1 h-10 rounded-[10px] text-[13px] font-medium bh-btn-primary disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {saving ? t("Loading") : t("Save")}
           </button>
@@ -1472,7 +1463,7 @@ const AdminAnnouncementModal = ({
         <div className="space-y-3 max-h-[60vh] overflow-y-auto pr-1">
           <div className="flex items-center gap-2">
             {status !== 'empty' && (
-              <span className={`inline-flex text-[11px] px-2 py-0.5 rounded-full ${statusClassName}`}>
+              <span className={`inline-flex text-[11px] px-2 py-0.5 rounded-md ${statusClassName}`}>
                 {statusLabel}
               </span>
             )}
@@ -1480,51 +1471,51 @@ const AdminAnnouncementModal = ({
           </div>
 
           {error && (
-            <div className="p-3 bg-[#FF6B3D]/10 border border-[#FF6B3D]/25 rounded-lg text-[#FFD3C6] text-sm flex items-start gap-2">
+            <div className="p-3 bg-[#FF8F96]/[0.06] border border-[#FF8F96]/[0.22] rounded-[10px] text-[#FFD9DC] text-[12.5px] flex items-start gap-2">
               <AlertCircle size={16} className="mt-0.5 flex-shrink-0" />
               <span>{error}</span>
             </div>
           )}
 
           <div>
-            <label className="block text-xs font-medium text-zinc-400 mb-1">{t("AnnouncementTitle")}</label>
+            <label className="block text-[11.5px] font-medium text-zinc-400 mb-1.5">{t("AnnouncementTitle")}</label>
             <input
               value={draft.title}
               onChange={(e) => setDraft((prev) => ({ ...prev, title: e.target.value }))}
               maxLength={200}
-              className="w-full rounded-xl px-4 py-3 text-white focus:outline-none bh-input"
+              className="w-full rounded-[10px] px-3.5 py-3 text-[13.5px] text-white focus:outline-none bh-input"
             />
           </div>
 
           <div>
-            <label className="block text-xs font-medium text-zinc-400 mb-1">{t("AnnouncementBody")}</label>
+            <label className="block text-[11.5px] font-medium text-zinc-400 mb-1.5">{t("AnnouncementBody")}</label>
             <textarea
               value={draft.body}
               onChange={(e) => setDraft((prev) => ({ ...prev, body: e.target.value }))}
               maxLength={20000}
               placeholder={t("AnnouncementBodyPlaceholder")}
-              className="w-full rounded-xl px-4 py-3 text-white focus:outline-none bh-input min-h-[200px] font-mono text-sm"
+              className="w-full rounded-[10px] px-3.5 py-3 text-[13px] text-white focus:outline-none bh-input min-h-[200px] font-mono"
             />
             <p className="text-[11px] text-zinc-500 mt-1">{t("AnnouncementMarkdownHint")}</p>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
-              <label className="block text-xs font-medium text-zinc-400 mb-1">{t("PublishAt")}</label>
+              <label className="block text-[11.5px] font-medium text-zinc-400 mb-1.5">{t("PublishAt")}</label>
               <input
                 type="datetime-local"
                 value={draft.publish_at}
                 onChange={(e) => setDraft((prev) => ({ ...prev, publish_at: e.target.value }))}
-                className="w-full rounded-xl px-4 py-2.5 text-white focus:outline-none bh-input text-sm"
+                className="w-full rounded-[10px] px-3.5 py-2.5 text-[12.5px] text-white focus:outline-none bh-input"
               />
             </div>
             <div>
-              <label className="block text-xs font-medium text-zinc-400 mb-1">{t("ExpiresAt")}</label>
+              <label className="block text-[11.5px] font-medium text-zinc-400 mb-1.5">{t("ExpiresAt")}</label>
               <input
                 type="datetime-local"
                 value={draft.expires_at}
                 onChange={(e) => setDraft((prev) => ({ ...prev, expires_at: e.target.value }))}
-                className="w-full rounded-xl px-4 py-2.5 text-white focus:outline-none bh-input text-sm"
+                className="w-full rounded-[10px] px-3.5 py-2.5 text-[12.5px] text-white focus:outline-none bh-input"
               />
             </div>
           </div>
@@ -1718,25 +1709,25 @@ const AuthModal = ({ isOpen, onClose, onLogin, canClose = true }: { isOpen: bool
   };
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/80 backdrop-blur-md p-4">
-      <div className="w-full max-w-md p-6 relative bh-surface-strong rounded-3xl bh-anim-pop">
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+      <div className="w-full max-w-[400px] p-6 relative bh-surface-strong rounded-[18px] bh-anim-pop">
         <div className="flex justify-between items-center mb-6">
-          <h2 className="text-xl font-bold text-white">{isLogin ? t("Login") : t("Register")}</h2>
+          <h2 className="text-[20px] font-semibold text-white">{isLogin ? t("Login") : t("Register")}</h2>
           {canClose && (
             <button onClick={onClose} className="bh-icon-btn" aria-label={t("Close")}>
               <X size={16} />
             </button>
           )}
         </div>
-        
+
         {!canClose && (
-          <div className="mb-6 text-sm text-zinc-400 bg-zinc-900/50 p-3 rounded-lg border border-zinc-800/50">
+          <div className="mb-6 text-[12.5px] text-zinc-400 bg-white/[0.03] p-3 rounded-[10px] border border-white/[0.08] leading-relaxed">
             {t("LoginPrompt")}
           </div>
         )}
 
         {error && (
-          <div className="mb-4 p-3 bg-[#FF6B3D]/10 border border-[#FF6B3D]/25 rounded-lg text-[#FFD3C6] text-sm flex items-start gap-2">
+          <div className="mb-4 p-3 bg-[#FF8F96]/[0.06] border border-[#FF8F96]/[0.22] rounded-[10px] text-[#FFD9DC] text-[12.5px] flex items-start gap-2">
             <AlertCircle size={16} className="mt-0.5 flex-shrink-0" />
             <span>{error}</span>
           </div>
@@ -1744,39 +1735,39 @@ const AuthModal = ({ isOpen, onClose, onLogin, canClose = true }: { isOpen: bool
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label className="block text-xs font-medium text-zinc-400 mb-1">{t("Email")}</label>
+            <label className="block text-[11.5px] font-medium text-zinc-400 mb-1.5">{t("Email")}</label>
             <input
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              className="w-full rounded-xl px-4 py-3 text-white focus:outline-none bh-input"
+              className="w-full rounded-[10px] px-3.5 py-3 text-[13.5px] text-white focus:outline-none bh-input"
               required
             />
           </div>
           <div>
-            <label className="block text-xs font-medium text-zinc-400 mb-1">{t("Password")}</label>
+            <label className="block text-[11.5px] font-medium text-zinc-400 mb-1.5">{t("Password")}</label>
             <input
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              className="w-full rounded-xl px-4 py-3 text-white focus:outline-none bh-input"
+              className="w-full rounded-[10px] px-3.5 py-3 text-[13.5px] text-white focus:outline-none bh-input"
               required
             />
           </div>
           <button
             type="submit"
             disabled={loading}
-            className="w-full text-white font-bold py-3 rounded-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed bh-btn-primary"
+            className="w-full h-11 rounded-[10px] font-medium text-[13.5px] transition-all disabled:opacity-50 disabled:cursor-not-allowed bh-btn-primary"
           >
             {loading ? <Loader2 size={18} className="animate-spin mx-auto" /> : (isLogin ? t("Login") : t("Register"))}
           </button>
         </form>
 
-        <div className="mt-4 text-center text-sm text-zinc-400">
+        <div className="mt-4 text-center text-[12.5px] text-zinc-400">
           {isLogin ? t("NoAccount") : t("HasAccount")}
           <button
             onClick={() => setIsLogin(!isLogin)}
-            className="ml-1 text-[#FF6B3D] hover:underline font-medium"
+            className="ml-1 text-[#C9A7FF] hover:underline font-medium"
           >
             {isLogin ? t("RegisterNow") : t("GoLogin")}
           </button>
@@ -1958,14 +1949,12 @@ const Sidebar = ({
   );
 };
 
-type CardAccent = 'orange' | 'blue' | 'mint';
-
 const AssetCard = React.memo(({
   asset,
-  accent = 'orange',
+  index,
 }: {
   asset: AssetResult;
-  accent?: CardAccent;
+  index: number;
 }) => {
   const { t } = useTranslation();
   const [imgError, setImgError] = useState(false);
@@ -1973,7 +1962,7 @@ const AssetCard = React.memo(({
   const glyph = (asset.title || '?').trim().slice(0, 1);
 
   return (
-    <article className="bh-asset-card" data-accent={accent}>
+    <article className="bh-asset-card">
       <a
         className="bh-asset-art"
         href={asset.url}
@@ -1990,9 +1979,10 @@ const AssetCard = React.memo(({
             onError={() => setImgError(true)}
           />
         ) : (
-          <span className="bh-asset-fallback"><ShoppingBag size={34} /></span>
+          <span className="bh-asset-fallback"><ShoppingBag size={30} /></span>
         )}
         <span className="bh-asset-kind">{kind}</span>
+        <span className="bh-asset-index" aria-hidden="true">{String(index + 1).padStart(2, '0')}</span>
       </a>
 
       <div className="bh-asset-info">
@@ -2003,7 +1993,7 @@ const AssetCard = React.memo(({
         </div>
         <div className="bh-asset-chips">
           {(asset.tags || []).slice(0, 2).map((tag, i) => (
-            <span key={i} className={`bh-chip ${i === 0 ? 'is-blue' : ''}`}>{tag}</span>
+            <span key={i} className={`bh-chip ${i === 0 ? 'is-accent' : ''}`}>{tag}</span>
           ))}
         </div>
       </div>
@@ -2093,7 +2083,7 @@ function extractStreamingItems(text: string): AssetResult[] | undefined {
 const ChatMessageBubble = React.memo(({ message }: { message: Message }) => {
   const { t } = useTranslation();
   const isUser = message.role === 'user';
-  const [expanded, setExpanded] = React.useState(false);
+  const isIntro = message.id === 'init';
 
   // 流式过程中即时解析已完整的商品（message.items 要等流结束才会由后端结果写入）
   const streamedItems = React.useMemo(
@@ -2123,12 +2113,9 @@ const ChatMessageBubble = React.memo(({ message }: { message: Message }) => {
     return text.trim();
   }, [message.text, message.isStreaming]);
 
-  const canCollapse = !isUser && items.length > 0 && displayText.length > 240;
-  const accents: CardAccent[] = ['orange', 'blue', 'mint'];
-
   return (
     <div className="bh-chat-col">
-      <div className={`bh-msg ${isUser ? 'is-user' : ''}`}>
+      <div className={`bh-msg ${isUser ? 'is-user' : ''} ${isIntro ? 'is-intro' : ''}`}>
         {!isUser && (
           <div className="bh-msg-avatar">
             <img src="/icon/icon-face-128.png" alt="" />
@@ -2136,18 +2123,20 @@ const ChatMessageBubble = React.memo(({ message }: { message: Message }) => {
         )}
 
         <div className="bh-msg-body">
-          <div className="bh-msg-who">
-            <b>{isUser ? t("You") : t("Lili")}</b>
-            {message.timestamp ? (
-              <time>
-                {new Date(message.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-              </time>
-            ) : null}
-          </div>
+          {!isIntro && (
+            <div className="bh-msg-who">
+              <b>{isUser ? t("You") : t("Lili")}</b>
+              {message.timestamp ? (
+                <time>
+                  {new Date(message.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                </time>
+              ) : null}
+            </div>
+          )}
 
           {message.toolCall && (
             <div className={`bh-tool-call ${message.toolCall.includes(t("Retry")) ? 'is-retry' : ''}`}>
-              <Hammer size={12} className={message.toolCall.includes(t("Retry")) ? 'animate-spin' : undefined} />
+              {message.toolCall.includes(t("Retry")) ? <AlertCircle size={12} /> : <Wrench size={12} />}
               <span>{t("ToolCall")}: {message.toolCall}</span>
             </div>
           )}
@@ -2156,7 +2145,7 @@ const ChatMessageBubble = React.memo(({ message }: { message: Message }) => {
             <div className="bh-status">
               <span className="bh-status-dot" aria-hidden="true" />
               <span>{message.status}</span>
-              <Loader2 size={12} className="animate-spin" style={{ marginLeft: 'auto', color: 'var(--bh-muted)' }} />
+              <Loader2 size={12} className="animate-spin" style={{ marginLeft: 'auto', color: 'var(--bh-ink-3)' }} />
             </div>
           )}
 
@@ -2166,6 +2155,15 @@ const ChatMessageBubble = React.memo(({ message }: { message: Message }) => {
               <div className="markdown-body">
                 <ReactMarkdown>{displayText}</ReactMarkdown>
               </div>
+            </div>
+          ) : isIntro ? (
+            <div className="bh-intro">
+              <div className="bh-intro-signal">
+                <span className="bh-live-dot" aria-hidden="true" />
+                <span>{t("BoothLiveStatus")}</span>
+              </div>
+              <h2>{t("Welcome")}</h2>
+              <p>{t("WelcomeDesc")}</p>
             </div>
           ) : (
             <>
@@ -2177,16 +2175,10 @@ const ChatMessageBubble = React.memo(({ message }: { message: Message }) => {
                 </div>
               )}
 
-              <div className={`bh-prose markdown-body ${canCollapse && !expanded ? 'is-clamped' : ''}`}>
+              <div className="bh-prose markdown-body">
                 <ReactMarkdown>{displayText}</ReactMarkdown>
                 {message.isStreaming && <span className="bh-stream-cursor" />}
               </div>
-
-              {canCollapse && (
-                <button type="button" className="bh-expand" onClick={() => setExpanded((v) => !v)}>
-                  {expanded ? t("ShowLess") : t("ShowMore")}
-                </button>
-              )}
 
               {message.turnMeta && (
                 <div className="bh-turn-meta">
@@ -2216,7 +2208,7 @@ const ChatMessageBubble = React.memo(({ message }: { message: Message }) => {
               <AssetCard
                 key={item.id || idx}
                 asset={item}
-                accent={accents[idx % accents.length]}
+                index={idx}
               />
             ))}
             {message.isStreaming && message.isJsonStreaming &&
@@ -2232,7 +2224,7 @@ const ChatMessageBubble = React.memo(({ message }: { message: Message }) => {
 
 const MessageSkeletonList = ({ count = 6 }: { count?: number }) => {
   return (
-    <div style={{ display: 'grid', gap: 26 }}>
+    <div style={{ display: 'grid', gap: 32 }}>
       {Array.from({ length: count }).map((_, i) => (
         <div key={i} className="bh-msg">
           <div className="bh-msg-avatar">
@@ -2280,7 +2272,7 @@ const App = () => {
 
   // Desktop sidebar collapse state (persisted)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  
+
   // Auth & Session State
   const [user, setUser] = useState<any>(null);
   const [authLoading, setAuthLoading] = useState(true);
@@ -3119,6 +3111,8 @@ const App = () => {
     ? (sidebarCollapsed ? t("ExpandSidebar") : t("CollapseSidebar"))
     : t("OpenSidebar");
 
+  const showEmptyIntro = !sessionMessagesLoading && messages.length === 1 && messages[0]?.id === 'init';
+
   return (
     <div className={`bh-app ${sidebarCollapsed && isDesktop ? 'is-collapsed' : ''}`}>
       <Sidebar
@@ -3153,10 +3147,6 @@ const App = () => {
 
             <div className="bh-session-head">
               <h1>{currentTitle}</h1>
-              <div className="bh-session-sub">
-                <span className="bh-live-dot" aria-hidden="true" />
-                <span>{t("BoothLiveStatus")}</span>
-              </div>
             </div>
 
             <div className="bh-topbar-right">
@@ -3230,7 +3220,7 @@ const App = () => {
           onScroll={() => updateIsAtBottom()}
           className="bh-scroller"
         >
-          <div className="bh-thread">
+          <div className={`bh-thread ${showEmptyIntro ? 'is-empty' : ''}`}>
             {sessionMessagesLoading ? (
               <div className="bh-chat-col">
                 <div className={reducedMotion ? '' : 'bh-anim-fade-up'}>
@@ -3269,8 +3259,8 @@ const App = () => {
 
             {processingTool && (
               <div className="bh-chat-col">
-                <div className={`bh-tool-call ${reducedMotion ? '' : 'bh-anim-fade-up'}`} style={{ marginLeft: 42 }}>
-                  <Hammer size={12} className="animate-bounce" />
+                <div className={`bh-tool-call ${reducedMotion ? '' : 'bh-anim-fade-up'}`} style={{ marginLeft: 44 }}>
+                  <Loader2 size={12} className="animate-spin" />
                   <span>{t("ToolCalling")}</span>
                 </div>
               </div>
@@ -3298,23 +3288,6 @@ const App = () => {
             )}
 
             <form onSubmit={handleSubmit} className="bh-composer">
-              <button
-                type="button"
-                onClick={() => fileInputRef.current?.click()}
-                disabled={imageProcessing || !canUseApp}
-                className="bh-attach"
-                title="Upload or paste image"
-              >
-                {imageProcessing ? <Loader2 size={19} className="animate-spin" /> : <ImageIcon size={19} />}
-              </button>
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept="image/*"
-                onChange={handleImageUpload}
-                className="hidden"
-              />
-
               <input
                 type="text"
                 value={input}
@@ -3325,16 +3298,35 @@ const App = () => {
                 className="bh-composer-input"
               />
 
-              <button
-                type={canStop ? "button" : "submit"}
-                onClick={canStop ? handleStopGenerating : undefined}
-                disabled={!canUseApp || imageProcessing || (!canStop && (loading || (!input.trim() && !image)))}
-                className={`bh-send ${canStop ? 'is-stop' : ''}`}
-                aria-label={canStop ? t("Stop") : t("Send")}
-                title={canStop ? t("Stop") : t("Send")}
-              >
-                {canStop ? <Pause size={17} /> : <Send size={17} />}
-              </button>
+              <div className="bh-composer-actions">
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={imageProcessing || !canUseApp}
+                  className="bh-attach"
+                  title="Upload or paste image"
+                >
+                  {imageProcessing ? <Loader2 size={16} className="animate-spin" /> : <ImageIcon size={17} />}
+                </button>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/*"
+                  onChange={handleImageUpload}
+                  className="hidden"
+                />
+
+                <button
+                  type={canStop ? "button" : "submit"}
+                  onClick={canStop ? handleStopGenerating : undefined}
+                  disabled={!canUseApp || imageProcessing || (!canStop && (loading || (!input.trim() && !image)))}
+                  className={`bh-send ${canStop ? 'is-stop' : ''}`}
+                  aria-label={canStop ? t("Stop") : t("Send")}
+                  title={canStop ? t("Stop") : t("Send")}
+                >
+                  {canStop ? <Pause size={14} /> : <ArrowUp size={16} strokeWidth={2.2} />}
+                </button>
+              </div>
             </form>
 
             <p className="bh-fineprint">{t("Disclaimer")}</p>
@@ -3353,14 +3345,14 @@ const App = () => {
 
       {/* Email verification gate: logged in but not verified */}
       {!authLoading && user && !emailVerified && (
-        <div className="fixed inset-0 z-[65] flex items-center justify-center bg-black/90 backdrop-blur-md p-4">
-          <div className="bg-[#17121C] border border-zinc-800 rounded-2xl w-full max-w-md p-6 shadow-2xl">
-            <h2 className="text-xl font-bold text-white mb-3">{t("VerifyEmail")}</h2>
-            <p className="text-sm text-zinc-400 leading-relaxed mb-5">
+        <div className="fixed inset-0 z-[65] flex items-center justify-center bg-black/85 backdrop-blur-sm p-4">
+          <div className="bh-surface-strong rounded-[18px] w-full max-w-[420px] p-6">
+            <h2 className="text-[20px] font-semibold text-white mb-3">{t("VerifyEmail")}</h2>
+            <p className="text-[13px] text-zinc-400 leading-relaxed mb-5">
               {t("VerifyEmailDesc", { email: user.email })}
             </p>
 
-            <div className="flex gap-3">
+            <div className="flex gap-2">
               <button
                 onClick={async () => {
                   try {
@@ -3371,7 +3363,7 @@ const App = () => {
                     pushToast({ type: 'error', title: 'Error', message: e?.message || 'Failed' });
                   }
                 }}
-                className="flex-1 bg-zinc-800 hover:bg-zinc-700 text-white font-bold py-2.5 rounded-lg transition-colors border border-zinc-700"
+                className="flex-1 h-10 rounded-[10px] text-[13px] font-medium transition-colors bh-btn-primary"
               >
                 {t("ResendEmail")}
               </button>
@@ -3381,7 +3373,7 @@ const App = () => {
                   const { data } = await supabase.auth.getUser();
                   setUser(data.user ?? null);
                 }}
-                className="bg-zinc-900 hover:bg-zinc-800 text-zinc-200 font-bold py-2.5 px-4 rounded-lg transition-colors border border-zinc-700"
+                className="h-10 px-4 rounded-[10px] text-[13px] font-medium transition-colors bh-btn-secondary"
                 title={t("Refresh")}
               >
                 {t("Refresh")}
@@ -3392,7 +3384,7 @@ const App = () => {
               onClick={async () => {
                 await supabase.auth.signOut();
               }}
-              className="mt-4 w-full text-sm text-zinc-400 hover:text-white py-2 rounded-lg hover:bg-zinc-900 transition-colors"
+              className="mt-4 w-full h-10 text-[12.5px] text-zinc-400 hover:text-white rounded-[10px] hover:bg-white/[0.05] transition-colors"
             >
               {t("Logout")}
             </button>
