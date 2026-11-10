@@ -491,6 +491,53 @@ grant usage on schema public to supabase_auth_admin;
 grant execute on function public.hook_restrict_signup_by_email_domain(jsonb) to supabase_auth_admin;
 revoke execute on function public.hook_restrict_signup_by_email_domain(jsonb) from authenticated, anon, public;
 
+-- ============ 4.9) 单条公告 ============
+
+create table if not exists public.announcement (
+  id smallint primary key default 1 check (id = 1),
+  title text not null default '',
+  body text not null default '',              -- Markdown
+  is_published boolean not null default false,
+  publish_at timestamptz not null default timezone('utc'::text, now()),
+  expires_at timestamptz,                     -- NULL = 永不过期
+  created_at timestamptz not null default timezone('utc'::text, now()),
+  updated_at timestamptz not null default timezone('utc'::text, now()),
+  constraint announcement_title_length check (char_length(title) <= 200),
+  constraint announcement_body_length check (char_length(body) <= 20000),
+  -- 未发布时允许清空内容；发布时必须同时有标题和正文
+  constraint announcement_published_requires_content
+    check (not is_published or (btrim(title) <> '' and btrim(body) <> '')),
+  constraint announcement_expiry_after_publish
+    check (expires_at is null or expires_at > publish_at)
+);
+
+-- 保证单例行存在
+insert into public.announcement (id) values (1) on conflict (id) do nothing;
+
+drop trigger if exists announcement_set_updated_at on public.announcement;
+create trigger announcement_set_updated_at
+before update on public.announcement
+for each row
+execute function public.set_updated_at();
+
+alter table public.announcement enable row level security;
+
+-- 匿名/登录用户只能读“已发布且当前生效”的那一行
+drop policy if exists "announcement: public read" on public.announcement;
+create policy "announcement: public read"
+on public.announcement
+for select
+to anon, authenticated
+using (
+  is_published
+  and publish_at <= now()
+  and (expires_at is null or expires_at > now())
+);
+
+grant select on public.announcement to anon, authenticated;
+grant all on public.announcement to service_role;
+revoke insert, update, delete on public.announcement from anon, authenticated;
+
 -- ============ 5) RLS ============
 
 alter table public.profiles enable row level security;

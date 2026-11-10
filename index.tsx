@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from "react";
 import { createRoot } from "react-dom/client";
-import { Search, Image as ImageIcon, Upload, ExternalLink, Loader2, Sparkles, ShoppingBag, X, AlertCircle, Terminal, ChevronDown, ChevronUp, Send, User, Hammer, LogOut, History, Plus, PanelLeft, UserCircle, Layout, MessageSquare, Trash2, Github, Shield, Users, Pause, Globe } from "lucide-react";
+import { Search, Image as ImageIcon, Upload, ExternalLink, Loader2, Sparkles, ShoppingBag, X, AlertCircle, Terminal, ChevronDown, ChevronUp, Send, User, Hammer, LogOut, History, Plus, PanelLeft, UserCircle, Layout, MessageSquare, Trash2, Github, Shield, Users, Pause, Globe, Megaphone } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import "./i18n";
 import { useTranslation } from "react-i18next";
@@ -94,17 +94,26 @@ const ModalShell = ({
   title,
   children,
   onClose,
+  widthClassName = 'max-w-md',
+  footer,
 }: {
   open: boolean;
   title: string;
   children: React.ReactNode;
   onClose: () => void;
+  widthClassName?: string;
+  footer?: React.ReactNode;
 }) => {
   const { t } = useTranslation();
   if (!open) return null;
   return (
     <div className="fixed inset-0 z-[95] bg-black/70 backdrop-blur-md flex items-center justify-center p-4">
-      <div className="w-full max-w-md bh-surface-strong rounded-3xl border border-white/10 shadow-2xl overflow-hidden">
+      <div
+        className={`w-full ${widthClassName} bh-surface-strong rounded-3xl border border-white/10 shadow-2xl overflow-hidden`}
+        role="dialog"
+        aria-modal="true"
+        aria-label={title}
+      >
         <div className="p-4 border-b border-white/5 flex items-center justify-between">
           <div className="text-white font-bold">{title}</div>
           <button onClick={onClose} className="bh-icon-btn" aria-label={t("Close")}>
@@ -112,6 +121,7 @@ const ModalShell = ({
           </button>
         </div>
         <div className="p-4">{children}</div>
+        {footer && <div className="px-4 py-3 border-t border-white/5">{footer}</div>}
       </div>
     </div>
   );
@@ -147,6 +157,39 @@ const ConfirmModal = ({
         >
           {options.confirmText || t("Confirm")}
         </button>
+      </div>
+    </ModalShell>
+  );
+};
+
+const AnnouncementModal = ({
+  open,
+  announcement,
+  onDismiss,
+}: {
+  open: boolean;
+  announcement: Announcement | null;
+  onDismiss: () => void;
+}) => {
+  const { t } = useTranslation();
+  if (!announcement) return null;
+  return (
+    <ModalShell
+      open={open}
+      title={announcement.title}
+      onClose={onDismiss}
+      widthClassName="max-w-lg"
+      footer={
+        <button
+          onClick={onDismiss}
+          className="w-full py-2.5 rounded-xl text-sm font-bold text-white bh-btn-primary"
+        >
+          {t("GotIt")}
+        </button>
+      }
+    >
+      <div className="markdown-body text-sm text-zinc-300 leading-relaxed max-h-[60vh] overflow-y-auto pr-1">
+        <ReactMarkdown>{announcement.body}</ReactMarkdown>
       </div>
     </ModalShell>
   );
@@ -410,16 +453,20 @@ async function getSupabaseAccessToken(): Promise<string | null> {
   return data.session?.access_token ?? null;
 }
 
-async function adminFetchJson<T>(path: string): Promise<T> {
+async function adminFetchJson<T>(path: string, init?: RequestInit): Promise<T> {
   const token = await getSupabaseAccessToken();
   if (!token) throw new Error('Not authenticated');
 
+  const headers = new Headers(init?.headers);
+  headers.set('authorization', `Bearer ${token}`);
+  if (init?.body && !headers.has('content-type')) {
+    headers.set('content-type', 'application/json');
+  }
+
   const res = await fetch(path, {
-    method: 'GET',
-    headers: {
-      'content-type': 'application/json',
-      authorization: `Bearer ${token}`,
-    },
+    ...init,
+    method: init?.method || 'GET',
+    headers,
   });
 
   const data = await res.json().catch(() => ({}));
@@ -454,6 +501,7 @@ const AdminPanel = ({
   const [error, setError] = useState<string | null>(null);
   const [userQuery, setUserQuery] = useState('');
   const [userSortBy, setUserSortBy] = useState<'created_at' | 'last_active' | 'total_turn_count'>('created_at');
+  const [isAnnouncementOpen, setIsAnnouncementOpen] = useState(false);
 
   // Turn limits
   const [settings, setSettings] = useState<AdminSettings | null>(null);
@@ -825,9 +873,19 @@ const AdminPanel = ({
             </div>
           </div>
 
-          <button onClick={onClose} className="bh-icon-btn" aria-label={t("Close")}>
-            <X size={16} />
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setIsAnnouncementOpen(true)}
+              className="bh-icon-btn"
+              aria-label={t("Announcement")}
+              title={t("Announcement")}
+            >
+              <Megaphone size={16} />
+            </button>
+            <button onClick={onClose} className="bh-icon-btn" aria-label={t("Close")}>
+              <X size={16} />
+            </button>
+          </div>
         </div>
 
         <div className="h-[calc(100%-72px)] grid grid-cols-1 lg:grid-cols-[320px_1fr]">
@@ -1196,7 +1254,283 @@ const AdminPanel = ({
           </section>
         </div>
       </div>
+
+      {isAnnouncementOpen && (
+        <AdminAnnouncementModal
+          open
+          onClose={() => setIsAnnouncementOpen(false)}
+          notify={notify}
+          confirm={confirm}
+        />
+      )}
     </div>
+  );
+};
+
+const AdminAnnouncementModal = ({
+  open,
+  onClose,
+  notify,
+  confirm,
+}: {
+  open: boolean;
+  onClose: () => void;
+  notify: (t: Omit<Toast, 'id'>) => void;
+  confirm: (opts: ConfirmOptions) => Promise<boolean>;
+}) => {
+  const { t } = useTranslation();
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [draft, setDraft] = useState<AnnouncementDraft>({
+    title: '',
+    body: '',
+    publish_at: toDatetimeLocal(new Date().toISOString()),
+    expires_at: '',
+  });
+  const [hasSavedAnnouncement, setHasSavedAnnouncement] = useState(false);
+
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
+
+    adminFetchJson<{ data: Announcement | null }>('/api/admin/announcement')
+      .then((res) => {
+        if (cancelled) return;
+        const a = res.data;
+        setDraft({
+          title: a?.title || '',
+          body: a?.body || '',
+          publish_at: toDatetimeLocal(a?.publish_at || new Date().toISOString()),
+          expires_at: a?.expires_at ? toDatetimeLocal(a.expires_at) : '',
+        });
+        setHasSavedAnnouncement(!!(a?.title || a?.body));
+      })
+      .catch((e: any) => {
+        if (cancelled) return;
+        const message = e?.message || t("LoadAnnouncementFailed");
+        setError(message);
+        notify({ type: 'error', title: t("LoadAnnouncementFailed"), message });
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
+
+  const hasContent = !!(draft.title.trim() || draft.body.trim());
+
+  const status = (() => {
+    if (!hasContent) return 'empty';
+    const pub = fromDatetimeLocal(draft.publish_at);
+    if (pub && new Date(pub).getTime() > Date.now()) return 'scheduled';
+    const exp = fromDatetimeLocal(draft.expires_at);
+    if (exp && new Date(exp).getTime() <= Date.now()) return 'expired';
+    return 'published';
+  })();
+
+  const statusLabel =
+    status === 'scheduled'
+      ? t("StatusScheduled")
+      : status === 'expired'
+      ? t("StatusExpired")
+      : t("StatusPublished");
+
+  const statusClassName =
+    status === 'published'
+      ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/25'
+      : status === 'scheduled'
+      ? 'bg-amber-500/15 text-amber-300 border border-amber-500/25'
+      : 'bg-zinc-700/30 text-zinc-300 border border-white/10';
+
+  const handleSave = async () => {
+    const title = draft.title.trim();
+    const body = draft.body.trim();
+
+    if (!title) {
+      setError(t("AnnouncementTitleRequired"));
+      return;
+    }
+    if (!body) {
+      setError(t("AnnouncementBodyRequired"));
+      return;
+    }
+
+    const publishAt = fromDatetimeLocal(draft.publish_at) || new Date().toISOString();
+    const expiresAt = fromDatetimeLocal(draft.expires_at);
+    if (expiresAt && new Date(expiresAt).getTime() <= new Date(publishAt).getTime()) {
+      setError(t("AnnouncementInvalidDateRange"));
+      return;
+    }
+
+    setSaving(true);
+    setError(null);
+
+    try {
+      const res = await adminFetchJson<{ data: Announcement }>('/api/admin/announcement', {
+        method: 'PUT',
+        body: JSON.stringify({
+          title,
+          body,
+          publish_at: publishAt,
+          expires_at: expiresAt,
+        }),
+      });
+      const a = res.data;
+      setDraft({
+        title: a?.title || '',
+        body: a?.body || '',
+        publish_at: toDatetimeLocal(a?.publish_at || publishAt),
+        expires_at: a?.expires_at ? toDatetimeLocal(a.expires_at) : '',
+      });
+      setHasSavedAnnouncement(true);
+      notify({ type: 'success', title: t("AnnouncementSaved"), message: '' });
+    } catch (e: any) {
+      const message = e?.message || t("SaveAnnouncementFailed");
+      setError(message);
+      notify({ type: 'error', title: t("SaveAnnouncementFailed"), message });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleDelete = async () => {
+    const ok = await confirm({
+      title: t("DeleteAnnouncement"),
+      message: t("DeleteAnnouncementConfirm"),
+      confirmText: t("Delete"),
+      cancelText: t("Cancel"),
+      destructive: true,
+    });
+    if (!ok) return;
+
+    setSaving(true);
+    setError(null);
+    try {
+      await adminFetchJson<{ ok: boolean }>('/api/admin/announcement', { method: 'DELETE' });
+      setDraft({
+        title: '',
+        body: '',
+        publish_at: toDatetimeLocal(new Date().toISOString()),
+        expires_at: '',
+      });
+      setHasSavedAnnouncement(false);
+      notify({ type: 'success', title: t("AnnouncementDeleted"), message: '' });
+    } catch (e: any) {
+      const message = e?.message || t("DeleteAnnouncementFailed");
+      setError(message);
+      notify({ type: 'error', title: t("DeleteAnnouncementFailed"), message });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <ModalShell
+      open={open}
+      title={t("AdminAnnouncement")}
+      onClose={onClose}
+      widthClassName="max-w-2xl"
+      footer={
+        <div className="flex items-center gap-3">
+          {hasSavedAnnouncement && (
+            <button
+              onClick={handleDelete}
+              disabled={saving}
+              className="px-3 py-2.5 rounded-xl text-sm font-medium text-[#FF5C5C] hover:bg-[#FF5C5C]/10 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {t("Delete")}
+            </button>
+          )}
+          <button
+            onClick={onClose}
+            className="flex-1 py-2.5 rounded-xl text-sm font-medium bh-btn-secondary text-white"
+          >
+            {t("Cancel")}
+          </button>
+          <button
+            onClick={handleSave}
+            disabled={loading || saving}
+            className="flex-1 py-2.5 rounded-xl text-sm font-bold text-white bh-btn-primary disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {saving ? t("Loading") : t("Save")}
+          </button>
+        </div>
+      }
+    >
+      {loading ? (
+        <div className="flex items-center justify-center py-10 text-zinc-400">
+          <Loader2 size={18} className="animate-spin" />
+        </div>
+      ) : (
+        <div className="space-y-3 max-h-[60vh] overflow-y-auto pr-1">
+          <div className="flex items-center gap-2">
+            {status !== 'empty' && (
+              <span className={`inline-flex text-[11px] px-2 py-0.5 rounded-full ${statusClassName}`}>
+                {statusLabel}
+              </span>
+            )}
+            <span className="text-[11px] text-zinc-500">{t("AnnouncementPublishHint")}</span>
+          </div>
+
+          {error && (
+            <div className="p-3 bg-[#FF6B3D]/10 border border-[#FF6B3D]/25 rounded-lg text-[#FFD3C6] text-sm flex items-start gap-2">
+              <AlertCircle size={16} className="mt-0.5 flex-shrink-0" />
+              <span>{error}</span>
+            </div>
+          )}
+
+          <div>
+            <label className="block text-xs font-medium text-zinc-400 mb-1">{t("AnnouncementTitle")}</label>
+            <input
+              value={draft.title}
+              onChange={(e) => setDraft((prev) => ({ ...prev, title: e.target.value }))}
+              maxLength={200}
+              className="w-full rounded-xl px-4 py-3 text-white focus:outline-none bh-input"
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs font-medium text-zinc-400 mb-1">{t("AnnouncementBody")}</label>
+            <textarea
+              value={draft.body}
+              onChange={(e) => setDraft((prev) => ({ ...prev, body: e.target.value }))}
+              maxLength={20000}
+              placeholder={t("AnnouncementBodyPlaceholder")}
+              className="w-full rounded-xl px-4 py-3 text-white focus:outline-none bh-input min-h-[200px] font-mono text-sm"
+            />
+            <p className="text-[11px] text-zinc-500 mt-1">{t("AnnouncementMarkdownHint")}</p>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-medium text-zinc-400 mb-1">{t("PublishAt")}</label>
+              <input
+                type="datetime-local"
+                value={draft.publish_at}
+                onChange={(e) => setDraft((prev) => ({ ...prev, publish_at: e.target.value }))}
+                className="w-full rounded-xl px-4 py-2.5 text-white focus:outline-none bh-input text-sm"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-zinc-400 mb-1">{t("ExpiresAt")}</label>
+              <input
+                type="datetime-local"
+                value={draft.expires_at}
+                onChange={(e) => setDraft((prev) => ({ ...prev, expires_at: e.target.value }))}
+                className="w-full rounded-xl px-4 py-2.5 text-white focus:outline-none bh-input text-sm"
+              />
+            </div>
+          </div>
+        </div>
+      )}
+    </ModalShell>
   );
 };
 
@@ -1254,6 +1588,56 @@ const getStaggerStyle = (index: number, enabled: boolean, baseMs: number = 40, m
 };
 
 const SIDEBAR_COLLAPSED_STORAGE_KEY = 'booth_hunter_sidebar_collapsed';
+
+// --- Announcements ---
+
+interface Announcement {
+  title: string;
+  body: string;
+  is_published?: boolean;
+  publish_at: string;
+  expires_at: string | null;
+  updated_at: string;
+}
+
+interface AnnouncementDraft {
+  title: string;
+  body: string;
+  publish_at: string; // datetime-local value
+  expires_at: string; // datetime-local value; '' = never
+}
+
+const ANNOUNCEMENT_SEEN_KEY = 'booth_hunter_announcement_seen';
+
+const readSeenAnnouncementUpdatedAt = (): string | null => {
+  try {
+    return window.localStorage.getItem(ANNOUNCEMENT_SEEN_KEY);
+  } catch {
+    return null;
+  }
+};
+
+const markAnnouncementSeen = (updatedAt: string) => {
+  try {
+    window.localStorage.setItem(ANNOUNCEMENT_SEEN_KEY, updatedAt);
+  } catch {
+    // ignore
+  }
+};
+
+const toDatetimeLocal = (iso: string | null | undefined): string => {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+};
+
+const fromDatetimeLocal = (value: string): string | null => {
+  if (!value) return null;
+  const d = new Date(value);
+  return Number.isNaN(d.getTime()) ? null : d.toISOString();
+};
 
 // Registration is restricted to mainstream mailbox providers.
 const ALLOWED_REGISTRATION_DOMAINS = new Set([
@@ -1906,6 +2290,28 @@ const App = () => {
   const [isAuthOpen, setIsAuthOpen] = useState(false);
   const [isAdmin, setIsAdmin] = useState(false);
   const [isAdminPanelOpen, setIsAdminPanelOpen] = useState(false);
+  const [announcement, setAnnouncement] = useState<Announcement | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const { data, error } = await supabase
+          .from('announcement')
+          .select('title,body,publish_at,expires_at,updated_at')
+          .maybeSingle();
+        if (cancelled || error || !data) return;
+        if (readSeenAnnouncementUpdatedAt() !== data.updated_at) {
+          setAnnouncement(data as Announcement);
+        }
+      } catch {
+        // Announcement is non-critical; ignore fetch failures.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // Latest turn meta (for sidebar display)
   const [dailyTurnCount, setDailyTurnCount] = useState<number | undefined>(undefined);
@@ -1978,6 +2384,19 @@ const App = () => {
   const emailVerified = !!(user && isUserEmailVerified(user));
   // 允许：已验证用户 OR (游客 AND 拿到了指纹)
   const canUseApp = (!!user && emailVerified) || (!user && !!visitorId);
+
+  const canShowAnnouncement =
+    !authLoading &&
+    canUseApp &&
+    !isAuthOpen &&
+    !isAdminPanelOpen &&
+    !!announcement &&
+    (!announcement.expires_at || new Date(announcement.expires_at).getTime() > Date.now());
+
+  const dismissAnnouncement = () => {
+    if (announcement) markAnnouncementSeen(announcement.updated_at);
+    setAnnouncement(null);
+  };
   
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLElement | null>(null);
@@ -2982,6 +3401,12 @@ const App = () => {
       )}
 
       <Analytics />
+
+      <AnnouncementModal
+        open={canShowAnnouncement}
+        announcement={announcement}
+        onDismiss={dismissAnnouncement}
+      />
 
       <ToastViewport toasts={toasts} onDismiss={dismissToast} />
 
